@@ -89,6 +89,31 @@ GitHub Actions runs the same suite on Python 3.12 and 3.14 for pushes to `main` 
 
 Run the bot as a **long-running worker/background process**, not as a short-lived request/response web service. Configure the same environment variables in the hosting provider's secret/environment settings, keep the process running, and allow the host's outbound connection to reach MongoDB.
 
+### Docker Compose
+
+With Docker and Docker Compose installed:
+
+1. Copy `.env.example` to `.env` and fill in the real credentials.
+2. Build and start Fahim:
+
+```bash
+docker compose up -d --build
+```
+
+3. Follow the logs:
+
+```bash
+docker compose logs -f fahim
+```
+
+4. Stop the bot:
+
+```bash
+docker compose down
+```
+
+The Compose service uses `restart: unless-stopped`, so Docker restarts the worker after a crash or host restart. It does not expose an HTTP port.
+
 Do not put API keys or tokens in source code, screenshots, logs, or deployment files. Restrict MongoDB network access to the deployment host where possible.
 
 ## Project layout
