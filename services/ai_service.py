@@ -641,6 +641,24 @@ a topic change, or an apology as improvement. Three accepted improvements are
 required before returning to normal.
 """
 
+        relationship_event_result = {}
+        effective_relationship_callback = relationship_event_callback
+
+        if (
+            relationship_status == "awaiting_apology"
+            and is_apology
+            and relationship_event_callback
+        ):
+            async def track_apology_result(event_type, details, summary):
+                result = await relationship_event_callback(
+                    event_type, details, summary
+                )
+                if isinstance(result, dict):
+                    relationship_event_result.update(result)
+                return result
+
+            effective_relationship_callback = track_apology_result
+
         initial_search_sources = []
 
         if (
@@ -722,7 +740,7 @@ required before returning to normal.
                 question,
                 gemini_history,
                 system_instruction,
-                relationship_event_callback=relationship_event_callback,
+                relationship_event_callback=effective_relationship_callback,
                 initial_search_sources=initial_search_sources,
             )
 
@@ -748,8 +766,21 @@ required before returning to normal.
                 question,
                 gemini_history,
                 system_instruction,
-                relationship_event_callback=relationship_event_callback,
+                relationship_event_callback=effective_relationship_callback,
                 initial_search_sources=initial_search_sources,
+            )
+
+        if (
+            relationship_status == "awaiting_apology"
+            and is_apology
+            and not (
+                relationship_event_result.get("success") is True
+                and relationship_event_result.get("status") == "reserved"
+            )
+        ):
+            return (
+                "وصلتني محاولتك، بس مش هاعتبر الموضوع اتقفل بكلمتين. "
+                "أنا محتاج اعتذار واضح عن اللي حصل فعلًا، وبعدها نشوف."
             )
 
         answer = response.text
