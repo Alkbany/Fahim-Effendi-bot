@@ -146,6 +146,43 @@ class MemoryServiceTests(unittest.IsolatedAsyncioTestCase):
         self.assertTrue(result["success"])
         self.assertEqual(result["status"], "normal")
 
+    async def test_relationship_update_retries_after_concurrent_write(self):
+        self.database.user_memories.find_one = AsyncMock(side_effect=[
+            {
+                "_id": "relationship-1",
+                "status": "reserved",
+                "improvement_count": 1,
+            },
+            {
+                "_id": "relationship-1",
+                "status": "reserved",
+                "improvement_count": 1,
+            },
+        ])
+        self.database.user_memories.update_one = AsyncMock(side_effect=[
+            SimpleNamespace(matched_count=0),
+            SimpleNamespace(matched_count=1),
+        ])
+
+        result = await self.memory.save_relationship_event(
+            100, 200, "improvement", "تصرف محترم وواضح", "تحسن السلوك."
+        )
+
+        self.assertTrue(result["success"])
+        self.assertEqual(result["status"], "reserved")
+        self.assertEqual(result["improvement_count"], 2)
+        self.assertEqual(
+            self.database.user_memories.update_one.await_count, 2
+        )
+        first_filter = (
+            self.database.user_memories.update_one.call_args_list[0].args[0]
+        )
+        second_filter = (
+            self.database.user_memories.update_one.call_args_list[1].args[0]
+        )
+        self.assertEqual(first_filter, {"_id": "relationship-1"})
+        self.assertEqual(second_filter, {"_id": "relationship-1"})
+
     async def test_improvement_does_not_clear_unapologized_conflict(self):
         self.database.user_memories.find_one = AsyncMock(return_value={
             "status": "awaiting_apology",
