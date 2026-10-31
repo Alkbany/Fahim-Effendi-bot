@@ -42,6 +42,32 @@ def make_relationship_event_callback(memory_service, guild_id, user_id):
     return record_event
 
 
+def make_memory_event_callbacks(memory_service, guild_id, user_id):
+    async def save_user_fact(key, value):
+        await memory_service.save_user_memory(
+            guild_id,
+            user_id,
+            key,
+            value,
+        )
+        return {"success": True, "message": "Personal memory saved."}
+
+    async def save_guild_fact(topic, summary, category, confidence):
+        await memory_service.save_guild_memory(
+            guild_id,
+            topic,
+            summary,
+            category,
+            confidence,
+        )
+        return {"success": True, "message": "Shared guild memory saved."}
+
+    return {
+        "user": save_user_fact,
+        "guild": save_guild_fact,
+    }
+
+
 def split_message(text, limit=1900):
     """Split long responses into Discord-safe messages."""
     chunks = []
@@ -257,6 +283,9 @@ class FahimBot(commands.Bot):
                     relationship_event_callback=make_relationship_event_callback(
                         self.memory_service, guild_id, user_id
                     ),
+                    memory_event_callbacks=make_memory_event_callbacks(
+                        self.memory_service, guild_id, user_id
+                    ),
                 )
 
                 await self.memory_service.save_turn(
@@ -355,6 +384,9 @@ async def ask(
                 "shared": shared_memories,
             },
             relationship_event_callback=make_relationship_event_callback(
+                bot.memory_service, guild_id, user_id
+            ),
+            memory_event_callbacks=make_memory_event_callbacks(
                 bot.memory_service, guild_id, user_id
             ),
         )
