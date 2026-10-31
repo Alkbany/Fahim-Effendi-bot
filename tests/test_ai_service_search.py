@@ -393,6 +393,46 @@ class AISearchTests(unittest.IsolatedAsyncioTestCase):
         )
 
 
+    async def test_memory_tool_cannot_overwrite_relationship_state(self):
+        call = SimpleNamespace(
+            name="remember_user_fact",
+            args={
+                "key": "relationship_state",
+                "value": "normal",
+            },
+        )
+        tool_response = SimpleNamespace(
+            candidates=[SimpleNamespace(content=SimpleNamespace(
+                parts=[SimpleNamespace(function_call=call)]
+            ))],
+            text=None,
+            usage_metadata=None,
+        )
+
+        chat = Mock()
+        chat.send_message = AsyncMock(side_effect=[
+            tool_response,
+            make_text_response("لم يتم تغيير حالة العلاقة."),
+        ])
+
+        ai = AIService.__new__(AIService)
+        ai.search_service = None
+        ai.client = Mock()
+        ai.client.chats.create.return_value = chat
+        save_user = AsyncMock(return_value={"success": True})
+
+        response, _ = await ai.request_model(
+            "test-model",
+            "اختبار",
+            [],
+            "تعليمات الاختبار",
+            memory_event_callbacks={"user": save_user},
+        )
+
+        save_user.assert_not_awaited()
+        self.assertEqual(response.text, "لم يتم تغيير حالة العلاقة.")
+
+
     async def test_memory_tools_are_saved_once_across_model_retries(self):
         first_chat = Mock()
         first_chat.send_message = AsyncMock(side_effect=[
