@@ -154,7 +154,24 @@ class MemoryServiceTests(unittest.IsolatedAsyncioTestCase):
         result = await self.memory.save_relationship_event(
             100, 200, "improvement", "هدوء في الحديث", "تحسن محدود."
         )
+        self.assertFalse(result["success"])
         self.assertEqual(result["status"], "awaiting_apology")
+        self.database.user_memories.update_one.assert_not_awaited()
+
+    async def test_legacy_relationship_state_is_inferred_from_events(self):
+        self.database.user_memories.find_one = AsyncMock(return_value={
+            "key": "relationship_state",
+            "events": [
+                {"type": "conflict"},
+                {"type": "apology"},
+                {"type": "improvement"},
+            ],
+        })
+
+        result = await self.memory.get_relationship_memory(100, 200)
+
+        self.assertEqual(result["status"], "reserved")
+        self.assertEqual(result["improvement_count"], 1)
 
     async def test_save_relationship_event_rejects_unknown_event_type(self):
         self.database.user_memories.update_one = AsyncMock()
@@ -174,6 +191,8 @@ class MemoryServiceTests(unittest.IsolatedAsyncioTestCase):
         expected = {
             "key": "relationship_state",
             "value": "يوجد خلاف سابق.",
+            "status": "normal",
+            "improvement_count": 0,
         }
         self.database.user_memories.find_one = AsyncMock(
             return_value=expected
