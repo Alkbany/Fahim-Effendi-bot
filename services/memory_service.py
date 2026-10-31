@@ -334,8 +334,15 @@ class MemoryService:
 
             try:
                 if current.get("_id") is not None:
+                    snapshot_filter = {"_id": current["_id"]}
+                    if "revision" in current:
+                        snapshot_filter["revision"] = current["revision"]
+                    else:
+                        snapshot_filter["revision"] = {"$exists": False}
+
+                    update["$inc"] = {"revision": 1}
                     result = await self.user_memories.update_one(
-                        {"_id": current["_id"]},
+                        snapshot_filter,
                         update,
                         upsert=False,
                     )
@@ -344,6 +351,7 @@ class MemoryService:
                 else:
                     # The compound unique index on (guild_id, user_id, key)
                     # makes first-write races detectable. The loser retries.
+                    update["$inc"] = {"revision": 1}
                     result = await self.user_memories.update_one(
                         key,
                         update,
