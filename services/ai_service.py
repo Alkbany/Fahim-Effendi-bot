@@ -581,6 +581,7 @@ class AIService:
                     valid_memory = (
                         isinstance(key, str)
                         and bool(key.strip())
+                        and key.strip().lower() != "relationship_state"
                         and len(key.strip()) <= 100
                         and isinstance(value, str)
                         and bool(value.strip())
