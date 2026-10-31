@@ -84,6 +84,44 @@ class RelationshipGateTests(unittest.IsolatedAsyncioTestCase):
             ai.request_model.await_args.kwargs["memory_event_callbacks"]
         )
 
+    async def test_urgent_safety_request_never_records_relationship_events(self):
+        for status in ("normal", "reserved"):
+            with self.subTest(status=status):
+                ai = self.make_ai()
+                ai.request_model.return_value = (
+                    type("Response", (), {
+                        "text": "ابتعد عن مصدر الخطر واطلب المساعدة فورًا.",
+                        "candidates": [],
+                        "usage_metadata": None,
+                    })(),
+                    [],
+                )
+                relationship_callback = AsyncMock()
+                memory_callbacks = {
+                    "user": AsyncMock(),
+                    "guild": AsyncMock(),
+                }
+
+                await ai.generate_response(
+                    "في حريق والحقني بسرعة",
+                    memories={"personal": [{
+                        "key": "relationship_state",
+                        "status": status,
+                    }]},
+                    relationship_event_callback=relationship_callback,
+                    memory_event_callbacks=memory_callbacks,
+                )
+
+                self.assertIsNone(
+                    ai.request_model.await_args.kwargs["relationship_event_callback"]
+                )
+                self.assertIsNone(
+                    ai.request_model.await_args.kwargs["memory_event_callbacks"]
+                )
+                relationship_callback.assert_not_awaited()
+                memory_callbacks["user"].assert_not_awaited()
+                memory_callbacks["guild"].assert_not_awaited()
+
     async def test_reserved_state_allows_requests_with_cautious_context(self):
         ai = self.make_ai()
         ai.request_model.return_value = (
