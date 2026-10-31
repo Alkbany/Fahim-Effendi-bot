@@ -61,6 +61,30 @@ def make_combined_tool_response():
         usage_metadata=None,
     )
 
+def make_memory_tool_response():
+    calls = [
+        SimpleNamespace(
+            name="remember_user_fact",
+            args={"key": "preferred_language", "value": "Egyptian Arabic"},
+        ),
+        SimpleNamespace(
+            name="remember_guild_fact",
+            args={
+                "topic": "weekly_meeting",
+                "summary": "The agency meets every Friday.",
+                "category": "community",
+                "confidence": "high",
+            },
+        ),
+    ]
+    parts = [SimpleNamespace(function_call=call) for call in calls]
+    return SimpleNamespace(
+        candidates=[SimpleNamespace(content=SimpleNamespace(parts=parts))],
+        text=None,
+        usage_metadata=None,
+    )
+
+
 def make_text_response(text):
     return SimpleNamespace(
         candidates=[],
@@ -367,6 +391,65 @@ class AISearchTests(unittest.IsolatedAsyncioTestCase):
             sources,
             ["- Python Docs: https://docs.python.org/"],
         )
+
+
+    async def test_memory_tools_are_saved_once_across_model_retries(self):
+        first_chat = Mock()
+        first_chat.send_message = AsyncMock(side_effect=[
+            make_memory_tool_response(),
+            make_text_response("تم حفظ المعلومتين."),
+        ])
+        fallback_chat = Mock()
+        fallback_chat.send_message = AsyncMock(side_effect=[
+            make_memory_tool_response(),
+            make_text_response("المعلومتان محفوظتان بالفعل."),
+        ])
+
+        ai = AIService.__new__(AIService)
+        ai.search_service = None
+        ai.client = Mock()
+        ai.client.chats.create.side_effect = [first_chat, fallback_chat]
+
+        save_user = AsyncMock(return_value={"success": True})
+        save_guild = AsyncMock(return_value={"success": True})
+        callbacks = {"user": save_user, "guild": save_guild}
+        shared_state = {
+            "search_used": False,
+            "search_sources": [],
+            "relationship_event_used": False,
+            "user_memory_saved": False,
+            "guild_memory_saved": False,
+        }
+
+        await ai.request_model(
+            "primary-model",
+            "افتكر إني أفضل العامية المصرية، واجتماع الوكالة الجمعة",
+            [],
+            "تعليمات الاختبار",
+            tool_state=shared_state,
+            memory_event_callbacks=callbacks,
+        )
+        response, _ = await ai.request_model(
+            "fallback-model",
+            "افتكر إني أفضل العامية المصرية، واجتماع الوكالة الجمعة",
+            [],
+            "تعليمات الاختبار",
+            tool_state=shared_state,
+            memory_event_callbacks=callbacks,
+        )
+
+        save_user.assert_awaited_once_with(
+            "preferred_language", "Egyptian Arabic"
+        )
+        save_guild.assert_awaited_once_with(
+            "weekly_meeting",
+            "The agency meets every Friday.",
+            "community",
+            "high",
+        )
+        self.assertTrue(shared_state["user_memory_saved"])
+        self.assertTrue(shared_state["guild_memory_saved"])
+        self.assertEqual(response.text, "المعلومتان محفوظتان بالفعل.")
 
 
     async def test_detects_current_price_questions(self):
