@@ -402,11 +402,15 @@ async def ask(
         # Replace the temporary message with Fahim's answer
         chunks = split_message(answer)
         await interaction.edit_original_response(
-            content=chunks[0]
+            content=chunks[0],
+            allowed_mentions=discord.AllowedMentions.none(),
         )
 
         for chunk in chunks[1:]:
-            await interaction.followup.send(chunk)
+            await interaction.followup.send(
+                chunk,
+                allowed_mentions=discord.AllowedMentions.none(),
+            )
 
     except Exception:
         logger.exception("Error while processing /ask")
