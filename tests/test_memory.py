@@ -60,6 +60,7 @@ class MemoryServiceTests(unittest.IsolatedAsyncioTestCase):
             guild_memories=SimpleNamespace(),
             user_memories=SimpleNamespace(
                 find_one=AsyncMock(return_value=None),
+                update_one=AsyncMock(),
             ),
         )
         self.memory = MemoryService(self.database)
