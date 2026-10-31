@@ -2,3 +2,4 @@ discord.py
 google-genai
 motor
 ddgs
+python-dotenv
