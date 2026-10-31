@@ -309,6 +309,66 @@ class AISearchTests(unittest.IsolatedAsyncioTestCase):
         )
 
 
+    async def test_tool_budgets_and_side_effects_are_shared_across_retries(self):
+        search = Mock()
+        search.search = AsyncMock(return_value=[{
+            "title": "Python Docs",
+            "url": "https://docs.python.org/",
+            "snippet": "Official documentation",
+        }])
+
+        first_chat = Mock()
+        first_chat.send_message = AsyncMock(side_effect=[
+            make_combined_tool_response(),
+            make_text_response("الإجابة الأولى [S1]."),
+        ])
+        fallback_chat = Mock()
+        fallback_chat.send_message = AsyncMock(side_effect=[
+            make_combined_tool_response(),
+            make_text_response("الإجابة البديلة [S1]."),
+        ])
+
+        ai = AIService.__new__(AIService)
+        ai.search_service = search
+        ai.client = Mock()
+        ai.client.chats.create.side_effect = [first_chat, fallback_chat]
+
+        callback = AsyncMock(return_value={"success": True})
+        shared_state = {
+            "search_used": False,
+            "search_sources": [],
+            "relationship_event_used": False,
+        }
+
+        await ai.request_model(
+            "primary-model",
+            "ابحث وسجّل الحدث",
+            [],
+            "تعليمات الاختبار",
+            relationship_event_callback=callback,
+            tool_state=shared_state,
+        )
+        response, sources = await ai.request_model(
+            "fallback-model",
+            "ابحث وسجّل الحدث",
+            [],
+            "تعليمات الاختبار",
+            relationship_event_callback=callback,
+            tool_state=shared_state,
+        )
+
+        search.search.assert_awaited_once_with("Python")
+        callback.assert_awaited_once()
+        self.assertTrue(shared_state["search_used"])
+        self.assertTrue(shared_state["relationship_event_used"])
+        self.assertEqual(len(shared_state["search_sources"]), 1)
+        self.assertEqual(response.text, "الإجابة البديلة [S1].")
+        self.assertEqual(
+            sources,
+            ["- Python Docs: https://docs.python.org/"],
+        )
+
+
     async def test_detects_current_price_questions(self):
         ai = AIService.__new__(AIService)
 
