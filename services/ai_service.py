@@ -168,6 +168,71 @@ class AIService:
             ]
         )
 
+    def get_memory_tools(self):
+        return [
+            types.Tool(
+                function_declarations=[
+                    types.FunctionDeclaration(
+                        name="remember_user_fact",
+                        description=(
+                            "Save a durable, useful, non-sensitive fact about "
+                            "the current member for that member only."
+                        ),
+                        parameters_json_schema={
+                            "type": "OBJECT",
+                            "properties": {
+                                "key": {
+                                    "type": "STRING",
+                                    "description": "A short, stable memory key.",
+                                },
+                                "value": {
+                                    "type": "STRING",
+                                    "description": "The durable fact to remember.",
+                                },
+                            },
+                            "required": ["key", "value"],
+                        },
+                    )
+                ]
+            ),
+            types.Tool(
+                function_declarations=[
+                    types.FunctionDeclaration(
+                        name="remember_guild_fact",
+                        description=(
+                            "Save a durable, non-sensitive fact about the "
+                            "whole Discord server or agency, shared within this server."
+                        ),
+                        parameters_json_schema={
+                            "type": "OBJECT",
+                            "properties": {
+                                "topic": {"type": "STRING"},
+                                "summary": {"type": "STRING"},
+                                "category": {
+                                    "type": "STRING",
+                                    "enum": [
+                                        "community",
+                                        "decision",
+                                        "event",
+                                        "rule",
+                                        "project",
+                                        "other",
+                                    ],
+                                },
+                                "confidence": {
+                                    "type": "STRING",
+                                    "enum": ["low", "medium", "high"],
+                                },
+                            },
+                            "required": [
+                                "topic", "summary", "category", "confidence"
+                            ],
+                        },
+                    )
+                ]
+            ),
+        ]
+
     @staticmethod
     def is_emergency_or_safety_request(question):
         if not isinstance(question, str):
@@ -323,6 +388,7 @@ class AIService:
         relationship_event_callback=None,
         initial_search_sources=None,
         tool_state=None,
+        memory_event_callbacks=None,
     ):
         tool_state = tool_state if isinstance(tool_state, dict) else {}
         if "search_sources" not in tool_state:
@@ -332,12 +398,16 @@ class AIService:
         relationship_event_used = tool_state.setdefault(
             "relationship_event_used", False
         )
+        user_memory_saved = tool_state.setdefault("user_memory_saved", False)
+        guild_memory_saved = tool_state.setdefault("guild_memory_saved", False)
 
         available_tools = []
         if self.search_service:
             available_tools.append(self.get_search_tool())
         if relationship_event_callback:
             available_tools.append(self.get_relationship_tool())
+        if memory_event_callbacks:
+            available_tools.extend(self.get_memory_tools())
 
         chat = self.client.chats.create(
             model=model,
@@ -384,6 +454,8 @@ class AIService:
                     if call and call.name in {
                         "web_search",
                         "record_relationship_event",
+                        "remember_user_fact",
+                        "remember_guild_fact",
                     }:
                         function_calls.append(call)
 
@@ -450,7 +522,7 @@ class AIService:
 
                             function_result["results"] = indexed_results
 
-                else:
+                elif call.name == "record_relationship_event":
                     event_type = args.get("event_type")
                     details = args.get("details")
                     summary = args.get("summary")
@@ -500,6 +572,116 @@ class AIService:
                             function_result = {
                                 "success": False,
                                 "message": "Could not save relationship event.",
+                            }
+
+                elif call.name == "remember_user_fact":
+                    key = args.get("key")
+                    value = args.get("value")
+                    valid_memory = (
+                        isinstance(key, str)
+                        and bool(key.strip())
+                        and len(key.strip()) <= 100
+                        and isinstance(value, str)
+                        and bool(value.strip())
+                        and len(value.strip()) <= MAX_MEMORY_CONTEXT_CHARS
+                    )
+
+                    if user_memory_saved:
+                        function_result = {
+                            "success": False,
+                            "message": "A personal memory has already been saved for this request.",
+                        }
+                    elif not callable((memory_event_callbacks or {}).get("user")):
+                        function_result = {
+                            "success": False,
+                            "message": "Personal memory storage is unavailable.",
+                        }
+                    elif not valid_memory:
+                        function_result = {
+                            "success": False,
+                            "message": "Invalid personal memory. Check key and value lengths.",
+                        }
+                    else:
+                        user_memory_saved = True
+                        tool_state["user_memory_saved"] = True
+                        try:
+                            callback_result = await memory_event_callbacks["user"](
+                                key.strip(), value.strip()
+                            )
+                            function_result = (
+                                callback_result
+                                if isinstance(callback_result, dict)
+                                else {
+                                    "success": True,
+                                    "message": "Personal memory saved.",
+                                }
+                            )
+                        except Exception:
+                            logger.exception("Failed to save personal memory.")
+                            function_result = {
+                                "success": False,
+                                "message": "Could not save personal memory.",
+                            }
+
+                else:
+                    topic = args.get("topic")
+                    summary = args.get("summary")
+                    category = args.get("category")
+                    confidence = args.get("confidence")
+                    valid_memory = (
+                        isinstance(topic, str)
+                        and bool(topic.strip())
+                        and len(topic.strip()) <= 200
+                        and isinstance(summary, str)
+                        and bool(summary.strip())
+                        and len(summary.strip()) <= MAX_MEMORY_CONTEXT_CHARS
+                        and isinstance(category, str)
+                        and category in {
+                            "community", "decision", "event",
+                            "rule", "project", "other",
+                        }
+                        and isinstance(confidence, str)
+                        and confidence in {"low", "medium", "high"}
+                    )
+
+                    if guild_memory_saved:
+                        function_result = {
+                            "success": False,
+                            "message": "A shared guild memory has already been saved for this request.",
+                        }
+                    elif not callable((memory_event_callbacks or {}).get("guild")):
+                        function_result = {
+                            "success": False,
+                            "message": "Shared guild memory storage is unavailable.",
+                        }
+                    elif not valid_memory:
+                        function_result = {
+                            "success": False,
+                            "message": "Invalid shared memory. Check topic, summary, category, and confidence.",
+                        }
+                    else:
+                        guild_memory_saved = True
+                        tool_state["guild_memory_saved"] = True
+                        try:
+                            callback_result = await memory_event_callbacks["guild"](
+                                topic.strip(),
+                                summary.strip(),
+                                category,
+                                confidence,
+                            )
+                            function_result = (
+                                callback_result
+                                if isinstance(callback_result, dict)
+                                else {
+                                    "success": True,
+                                    "message": "Shared guild memory saved.",
+                                }
+                            )
+                        except Exception:
+                            logger.exception("Failed to save shared guild memory.")
+                            function_result = {
+                                "success": False,
+                                "message": "Could not save shared guild memory.",
                             }
 
                 function_responses.append(
@@ -598,6 +780,7 @@ class AIService:
         history=None,
         memories=None,
         relationship_event_callback=None,
+        memory_event_callbacks=None,
     ):
         memories = memories or {}
         relationship_state = self.get_relationship_state(memories)
@@ -631,6 +814,22 @@ class AIService:
             + self.build_memory_context(memories)
             + self.get_answer_priority_instructions()
         )
+
+        if memory_event_callbacks:
+            system_instruction += """
+
+[LONG-TERM MEMORY RULES]
+- Use remember_user_fact only for durable, useful, non-sensitive facts about this member.
+  Examples include stable preferences, ongoing projects, and explicit requests to remember.
+- Use remember_guild_fact only for durable, non-sensitive information belonging to the whole server:
+  agreed decisions, shared project facts, server rules, and planned community events.
+- Never put a member's private information, secrets, credentials, or personal disputes in shared guild memory.
+- Do not save temporary details, guesses, jokes, passing moods, or information with no likely future value.
+- Relationship conflicts, apologies, and trust state belong only in the relationship tool, not ordinary memories.
+- Save a fact only when the member explicitly asks you to remember it or its lasting future value is clear.
+- Use a stable key/topic so later updates replace the existing fact instead of creating duplicates.
+- Never claim a fact was saved unless the tool reports success.
+"""
 
         if relationship_event_callback:
             system_instruction += """
@@ -766,6 +965,8 @@ required before returning to normal.
             "search_used": mandatory_search_attempted,
             "search_sources": list(initial_search_sources),
             "relationship_event_used": False,
+            "user_memory_saved": False,
+            "guild_memory_saved": False,
         }
 
         primary_model = GEMINI_MODEL
@@ -784,6 +985,7 @@ required before returning to normal.
                 relationship_event_callback=effective_relationship_callback,
                 initial_search_sources=initial_search_sources,
                 tool_state=request_tool_state,
+                memory_event_callbacks=memory_event_callbacks,
             )
 
         except errors.APIError as error:
@@ -811,6 +1013,7 @@ required before returning to normal.
                 relationship_event_callback=effective_relationship_callback,
                 initial_search_sources=initial_search_sources,
                 tool_state=request_tool_state,
+                memory_event_callbacks=memory_event_callbacks,
             )
 
         if (
