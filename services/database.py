@@ -1,6 +1,6 @@
 import logging
 
-from motor.motor_asyncio import AsyncIOMotorClient
+from pymongo import AsyncMongoClient
 
 from config import (
     MONGO_URI,
@@ -27,7 +27,7 @@ class DatabaseService:
         if self.client is not None:
             raise RuntimeError("Database is already initialized.")
 
-        self.client = AsyncIOMotorClient(MONGO_URI)
+        self.client = AsyncMongoClient(MONGO_URI)
 
         try:
             await self.client.admin.command("ping")
@@ -86,7 +86,7 @@ class DatabaseService:
 
     async def close(self):
         if self.client is not None:
-            self.client.close()
+            await self.client.close()
 
         self.client = None
         self.database = None
