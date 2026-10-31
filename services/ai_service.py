@@ -789,6 +789,9 @@ class AIService:
         is_emergency = self.is_emergency_or_safety_request(question)
         is_apology = self.is_apology_attempt(question)
         effective_relationship_callback = relationship_event_callback
+        effective_memory_callbacks = (
+            None if is_emergency else memory_event_callbacks
+        )
 
         # An urgent safety request must never alter relationship state.
         if relationship_status == "awaiting_apology" and is_emergency:
@@ -816,7 +819,7 @@ class AIService:
             + self.get_answer_priority_instructions()
         )
 
-        if memory_event_callbacks:
+        if effective_memory_callbacks:
             system_instruction += """
 
 [LONG-TERM MEMORY RULES]
@@ -986,7 +989,7 @@ required before returning to normal.
                 relationship_event_callback=effective_relationship_callback,
                 initial_search_sources=initial_search_sources,
                 tool_state=request_tool_state,
-                memory_event_callbacks=memory_event_callbacks,
+                memory_event_callbacks=effective_memory_callbacks,
             )
 
         except errors.APIError as error:
