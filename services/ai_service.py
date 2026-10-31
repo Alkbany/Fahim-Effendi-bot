@@ -149,6 +149,55 @@ class AIService:
             ]
         )
 
+    @staticmethod
+    def is_emergency_or_safety_request(question):
+        if not isinstance(question, str):
+            return False
+
+        text = question.lower()
+        urgent_phrases = (
+            "طوارئ", "الحقني", "الحقونا", "في خطر", "خطر حالًا",
+            "حريق", "نزيف", "مش قادر اتنفس", "مش قادرة اتنفس",
+            "صعوبة في التنفس", "اتعرضت لاعتداء", "اعتداء",
+            "محتاج مساعدة فورية", "مساعدة عاجلة", "إسعاف",
+            "emergency", "urgent help", "need help now", "in danger",
+            "fire", "bleeding", "can't breathe", "cannot breathe",
+            "being attacked", "assault", "ambulance",
+            "suicide", "self-harm", "hurt myself",
+        )
+        return any(phrase in text for phrase in urgent_phrases)
+
+    @staticmethod
+    def is_apology_attempt(question):
+        if not isinstance(question, str):
+            return False
+
+        text = question.lower()
+        apology_phrases = (
+            "انا اسف", "أنا آسف", "انا آسف", "أنا اسف",
+            "حقك عليا", "حقك عليّ", "سامحني", "سامحنى",
+            "اعتذر", "بعتذر", "اسف يا فهيم", "آسف يا فهيم",
+            "معلش يا فهيم", "غلطت في حقك", "غلطت بحقك",
+            "i am sorry", "i'm sorry", "my apologies",
+            "i apologize", "please forgive me",
+        )
+        return any(phrase in text for phrase in apology_phrases)
+
+    @staticmethod
+    def get_relationship_state(memories):
+        for item in (memories or {}).get("personal", []):
+            if item.get("key") == "relationship_state":
+                status = item.get("status", "normal")
+                if status in {"awaiting_apology", "reserved"}:
+                    return {
+                        "status": status,
+                        "improvement_count": int(
+                            item.get("improvement_count", 0) or 0
+                        ),
+                        "summary": item.get("summary", ""),
+                    }
+        return {"status": "normal", "improvement_count": 0, "summary": ""}
+
     async def execute_search(self, query):
         if not self.search_service:
             return {
@@ -407,15 +456,18 @@ class AIService:
                     else:
                         relationship_event_used = True
                         try:
-                            await relationship_event_callback(
+                            callback_result = await relationship_event_callback(
                                 event_type,
                                 details.strip(),
                                 summary.strip(),
                             )
-                            function_result = {
-                                "success": True,
-                                "message": "Relationship event saved.",
-                            }
+                            if isinstance(callback_result, dict):
+                                function_result = callback_result
+                            else:
+                                function_result = {
+                                    "success": True,
+                                    "message": "Relationship event saved.",
+                                }
                         except Exception:
                             logger.exception("Failed to save relationship event.")
                             function_result = {
@@ -520,13 +572,32 @@ class AIService:
         memories=None,
         relationship_event_callback=None,
     ):
+        memories = memories or {}
+        relationship_state = self.get_relationship_state(memories)
+        relationship_status = relationship_state["status"]
+        is_emergency = self.is_emergency_or_safety_request(question)
+        is_apology = self.is_apology_attempt(question)
+
+        # Block ordinary requests while a recorded conflict awaits an apology.
+        # Explicit apology attempts and urgent safety requests bypass the gate.
+        if (
+            relationship_status == "awaiting_apology"
+            and not is_emergency
+            and not is_apology
+        ):
+            return (
+                "بص يا سيدي، أنا لسه شايل من اللي حصل بينا. "
+                "مش هقدر أساعدك في طلب عادي قبل ما نتكلم في اللي حصل "
+                "وتعتذر عنه بوضوح."
+            )
+
         gemini_history = self.build_history(history)
 
         system_instruction = (
             self.personality
             + self.get_current_time_context()
             + self.get_research_instructions()
-            + self.build_memory_context(memories or {})
+            + self.build_memory_context(memories)
         )
 
         if relationship_event_callback:
@@ -536,11 +607,38 @@ class AIService:
 - Record a conflict only for a clear insult or hostile remark directed at Fahim.
 - Do not record ordinary criticism, disagreement, jokes, or ambiguous wording.
 - Record an apology only when it clearly concerns a previous conflict with Fahim.
-- Record improvement only when behavior clearly improves after a previous conflict.
+- Record improvement only when behavior clearly improves after an accepted apology.
+- Never count an apology as an improvement.
+- Never count a topic change, ordinary politeness, or a single neutral message as improvement.
 - Most messages should not create relationship events.
-- Do not assume a new topic continues an earlier argument.
 - Keep event details factual and summaries concise.
 - Never invent past events or apologies.
+"""
+
+        if relationship_status == "awaiting_apology":
+            system_instruction += """
+
+[DETERMINISTIC RELATIONSHIP STATE: AWAITING APOLOGY]
+This member has an unresolved, recorded conflict with Fahim.
+The current message passed the apology-attempt or urgent-safety gate.
+If it is a sincere, explicit apology for the recorded conflict, record exactly one
+apology event. If it is not a clear apology, do not change the relationship state.
+Do not treat a topic change, excuse, joke, or unrelated request as an apology.
+If this is an urgent safety request, help with the urgent issue immediately and
+do not demand an apology or treat the emergency as relationship improvement.
+"""
+
+        elif relationship_status == "reserved":
+            system_instruction += f"""
+
+[DETERMINISTIC RELATIONSHIP STATE: RESERVED]
+The member has apologized for a previous conflict, but trust has not fully recovered.
+Recorded clear improvement count: {relationship_state["improvement_count"]} of 3.
+Answer ordinary questions, but keep Fahim's tone reserved and not instantly warm.
+Record an improvement only after a distinct interaction clearly demonstrates
+respectful, constructive behavior. Do not count repeated messages in one exchange,
+a topic change, or an apology as improvement. Three accepted improvements are
+required before returning to normal.
 """
 
         initial_search_sources = []
