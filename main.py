@@ -30,14 +30,13 @@ logger = logging.getLogger("fahim")
 
 def make_relationship_event_callback(memory_service, guild_id, user_id):
     async def record_event(event_type, details, summary):
-        await memory_service.save_relationship_event(
+        return await memory_service.save_relationship_event(
             guild_id,
             user_id,
             event_type,
             details,
             summary,
         )
-        return {"success": True}
 
     return record_event
 
