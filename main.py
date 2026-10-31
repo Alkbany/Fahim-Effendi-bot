@@ -160,9 +160,14 @@ class FahimBot(commands.Bot):
 
         if (
             re.search(rf"<@!?{self.user.id}>", content)
-            or re.search(r"يا\\s+فهيم\\s+[اأإ]?فندي", content) is not None
+            or re.search(r"يا\s+فهيم\s+[اأإ]?فندي", content) is not None
         ):
             return True
+
+        # Preserve direct callers and existing tests: resolve a reply here
+        # when the caller has not already resolved it.
+        if reference_message is None and message.reference:
+            reference_message = await self.resolve_reference_message(message)
 
         return (
             reference_message is not None
