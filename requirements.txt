@@ -1,5 +1,5 @@
 discord.py
 google-genai
-motor
+pymongo==4.19.0
 ddgs
 python-dotenv
