@@ -577,6 +577,11 @@ class AIService:
         relationship_status = relationship_state["status"]
         is_emergency = self.is_emergency_or_safety_request(question)
         is_apology = self.is_apology_attempt(question)
+        effective_relationship_callback = relationship_event_callback
+
+        # An urgent safety request must never alter relationship state.
+        if relationship_status == "awaiting_apology" and is_emergency:
+            effective_relationship_callback = None
 
         # Block ordinary requests while a recorded conflict awaits an apology.
         # Explicit apology attempts and urgent safety requests bypass the gate.
@@ -624,8 +629,8 @@ The current message passed the apology-attempt or urgent-safety gate.
 If it is a sincere, explicit apology for the recorded conflict, record exactly one
 apology event. If it is not a clear apology, do not change the relationship state.
 Do not treat a topic change, excuse, joke, or unrelated request as an apology.
-If this is an urgent safety request, help with the urgent issue immediately and
-do not demand an apology or treat the emergency as relationship improvement.
+If this is an urgent safety request, help with the urgent issue immediately,
+do not demand an apology, and do not record any relationship event.
 """
 
         elif relationship_status == "reserved":
@@ -642,7 +647,6 @@ required before returning to normal.
 """
 
         relationship_event_result = {}
-        effective_relationship_callback = relationship_event_callback
 
         if (
             relationship_status == "awaiting_apology"
