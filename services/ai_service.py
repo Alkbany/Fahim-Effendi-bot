@@ -1017,7 +1017,7 @@ required before returning to normal.
                 relationship_event_callback=effective_relationship_callback,
                 initial_search_sources=initial_search_sources,
                 tool_state=request_tool_state,
-                memory_event_callbacks=memory_event_callbacks,
+                memory_event_callbacks=effective_memory_callbacks,
             )
 
         if (
