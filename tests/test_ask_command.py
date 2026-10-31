@@ -71,14 +71,21 @@ class AskCommandTests(unittest.IsolatedAsyncioTestCase):
         memory.save_turn.assert_awaited_once_with(
             100, 200, "عامل إيه؟", answer
         )
-        interaction.edit_original_response.assert_awaited_once_with(
-            content=answer[:1900],
-            allowed_mentions=main.discord.AllowedMentions.none(),
-        )
-        interaction.followup.send.assert_awaited_once_with(
-            answer[1900:],
-            allowed_mentions=main.discord.AllowedMentions.none(),
-        )
+        interaction.edit_original_response.assert_awaited_once()
+        edit_kwargs = interaction.edit_original_response.await_args.kwargs
+        self.assertEqual(edit_kwargs["content"], answer[:1900])
+        self.assertFalse(edit_kwargs["allowed_mentions"].everyone)
+        self.assertFalse(edit_kwargs["allowed_mentions"].users)
+        self.assertFalse(edit_kwargs["allowed_mentions"].roles)
+        self.assertFalse(edit_kwargs["allowed_mentions"].replied_user)
+
+        interaction.followup.send.assert_awaited_once()
+        followup_args, followup_kwargs = interaction.followup.send.await_args
+        self.assertEqual(followup_args, (answer[1900:],))
+        self.assertFalse(followup_kwargs["allowed_mentions"].everyone)
+        self.assertFalse(followup_kwargs["allowed_mentions"].users)
+        self.assertFalse(followup_kwargs["allowed_mentions"].roles)
+        self.assertFalse(followup_kwargs["allowed_mentions"].replied_user)
 
     async def test_ai_failure_does_not_save_turn(self):
         interaction = self.make_interaction()
