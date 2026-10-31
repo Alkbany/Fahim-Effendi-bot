@@ -216,6 +216,40 @@ class MemoryService:
             upsert=True,
         )
 
+    @staticmethod
+    def _derive_relationship_state(document):
+        """Infer legacy documents that predate explicit state fields."""
+        valid_statuses = {"normal", "awaiting_apology", "reserved"}
+        status = document.get("status")
+        improvement_count = int(
+            document.get("improvement_count", 0) or 0
+        )
+
+        if status in valid_statuses:
+            return status, max(0, improvement_count)
+
+        status = "normal"
+        improvement_count = 0
+
+        for event in document.get("events", []):
+            if not isinstance(event, dict):
+                continue
+
+            event_type = event.get("type")
+            if event_type == "conflict":
+                status = "awaiting_apology"
+                improvement_count = 0
+            elif event_type == "apology" and status == "awaiting_apology":
+                status = "reserved"
+                improvement_count = 0
+            elif event_type == "improvement" and status == "reserved":
+                improvement_count += 1
+                if improvement_count >= 3:
+                    status = "normal"
+                    improvement_count = 0
+
+        return status, improvement_count
+
     async def save_relationship_event(
         self, guild_id, user_id, event_type, details, summary
     ):
@@ -242,8 +276,7 @@ class MemoryService:
             "key": "relationship_state",
         }
         current = await self.user_memories.find_one(key, {"_id": 0}) or {}
-        status = current.get("status", "normal")
-        improvement_count = int(current.get("improvement_count", 0) or 0)
+        status, improvement_count = self._derive_relationship_state(current)
         now = datetime.now(timezone.utc)
 
         if event_type == "conflict":
@@ -258,7 +291,14 @@ class MemoryService:
                 }
             status = "reserved"
             improvement_count = 0
-        elif event_type == "improvement" and status == "reserved":
+        elif event_type == "improvement":
+            if status != "reserved":
+                return {
+                    "success": False,
+                    "status": status,
+                    "improvement_count": improvement_count,
+                    "message": "Improvement is only counted after an apology.",
+                }
             improvement_count += 1
             if improvement_count >= 3:
                 status = "normal"
@@ -296,7 +336,7 @@ class MemoryService:
 
     async def get_relationship_memory(self, guild_id, user_id):
         """Always retrieve this member's relationship state."""
-        return await self.user_memories.find_one(
+        document = await self.user_memories.find_one(
             {
                 "guild_id": str(guild_id),
                 "user_id": str(user_id),
@@ -304,6 +344,13 @@ class MemoryService:
             },
             {"_id": 0},
         )
+        if not document:
+            return None
+
+        status, improvement_count = self._derive_relationship_state(document)
+        document["status"] = status
+        document["improvement_count"] = improvement_count
+        return document
 
     async def get_relevant_user_memories(
         self, guild_id, user_id, question, limit=5
