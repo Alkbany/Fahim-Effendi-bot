@@ -11,6 +11,7 @@ from config import (
     GEMINI_API_KEY,
     GEMINI_MODEL,
     MAX_MEMORY_CONTEXT_CHARS,
+    MAX_MEMORY_TEXT_CHARS,
     AI_HISTORY_LIMIT,
     MAX_HISTORY_MESSAGE_CHARS,
     MAX_HISTORY_CONTEXT_CHARS,
@@ -583,7 +584,7 @@ class AIService:
                         and len(key.strip()) <= 100
                         and isinstance(value, str)
                         and bool(value.strip())
-                        and len(value.strip()) <= MAX_MEMORY_CONTEXT_CHARS
+                        and len(value.strip()) <= MAX_MEMORY_TEXT_CHARS
                     )
 
                     if user_memory_saved:
@@ -634,7 +635,7 @@ class AIService:
                         and len(topic.strip()) <= 200
                         and isinstance(summary, str)
                         and bool(summary.strip())
-                        and len(summary.strip()) <= MAX_MEMORY_CONTEXT_CHARS
+                        and len(summary.strip()) <= MAX_MEMORY_TEXT_CHARS
                         and isinstance(category, str)
                         and category in {
                             "community", "decision", "event",
