@@ -794,8 +794,9 @@ class AIService:
             None if is_emergency else memory_event_callbacks
         )
 
-        # An urgent safety request must never alter relationship state.
-        if relationship_status == "awaiting_apology" and is_emergency:
+        # An urgent safety request must never alter relationship state,
+        # regardless of the member's current relationship status.
+        if is_emergency:
             effective_relationship_callback = None
 
         # Block ordinary requests while a recorded conflict awaits an apology.
