@@ -322,7 +322,17 @@ class AIService:
         system_instruction,
         relationship_event_callback=None,
         initial_search_sources=None,
+        tool_state=None,
     ):
+        tool_state = tool_state if isinstance(tool_state, dict) else {}
+        if "search_sources" not in tool_state:
+            tool_state["search_sources"] = list(initial_search_sources or [])
+        search_sources = tool_state["search_sources"]
+        search_used = tool_state.setdefault("search_used", bool(search_sources))
+        relationship_event_used = tool_state.setdefault(
+            "relationship_event_used", False
+        )
+
         available_tools = []
         if self.search_service:
             available_tools.append(self.get_search_tool())
@@ -364,10 +374,6 @@ class AIService:
             model,
             time.perf_counter() - request_started,
         )
-        search_sources = list(initial_search_sources or [])
-        search_used = bool(search_sources)
-        relationship_event_used = False
-
         for _ in range(3):
             function_calls = []
 
@@ -407,6 +413,7 @@ class AIService:
                             }
                         else:
                             search_used = True
+                            tool_state["search_used"] = True
                             logger.info("Web search query: %s", query)
                             function_result = await self.execute_search(query)
 
@@ -474,6 +481,7 @@ class AIService:
                         }
                     else:
                         relationship_event_used = True
+                        tool_state["relationship_event_used"] = True
                         try:
                             callback_result = await relationship_event_callback(
                                 event_type,
@@ -683,11 +691,13 @@ required before returning to normal.
             effective_relationship_callback = track_apology_result
 
         initial_search_sources = []
+        mandatory_search_attempted = False
 
         if (
             self.search_service
             and self.is_current_price_question(question)
         ):
+            mandatory_search_attempted = True
             now = datetime.now(CAIRO_TIMEZONE)
             search_query = (
                 f"{question} السعر الحالي اليوم في مصر "
@@ -750,6 +760,14 @@ required before returning to normal.
                     "وضّح أن البحث لم يوفر بيانات كافية."
                 )
 
+        # Share tool budgets and side-effect guards across primary/fallback
+        # model attempts. A retry is still the same user request.
+        request_tool_state = {
+            "search_used": mandatory_search_attempted,
+            "search_sources": list(initial_search_sources),
+            "relationship_event_used": False,
+        }
+
         primary_model = GEMINI_MODEL
 
         try:
@@ -765,6 +783,7 @@ required before returning to normal.
                 system_instruction,
                 relationship_event_callback=effective_relationship_callback,
                 initial_search_sources=initial_search_sources,
+                tool_state=request_tool_state,
             )
 
         except errors.APIError as error:
@@ -791,6 +810,7 @@ required before returning to normal.
                 system_instruction,
                 relationship_event_callback=effective_relationship_callback,
                 initial_search_sources=initial_search_sources,
+                tool_state=request_tool_state,
             )
 
         if (
