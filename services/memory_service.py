@@ -19,6 +19,23 @@ class MemoryService:
         self.user_memories = database_service.user_memories
 
     @staticmethod
+    async def _upsert_with_duplicate_retry(collection, key, update):
+        try:
+            return await collection.update_one(
+                key,
+                update,
+                upsert=True,
+            )
+        except DuplicateKeyError:
+            # Another request inserted the same unique key after our read.
+            # Retry as an update so the concurrent first write is not lost.
+            return await collection.update_one(
+                key,
+                update,
+                upsert=False,
+            )
+
+    @staticmethod
     def _search_terms(text):
         words = re.findall(r"[\w\u0600-\u06FF]+", text.lower())
         return list(dict.fromkeys(
@@ -74,7 +91,8 @@ class MemoryService:
             {"role": "model", "text": answer, "timestamp": now},
         ]
 
-        await self.conversations.update_one(
+        await self._upsert_with_duplicate_retry(
+            self.conversations,
             key,
             {
                 "$push": {
@@ -86,7 +104,6 @@ class MemoryService:
                 "$set": {"updated_at": now},
                 "$setOnInsert": {"created_at": now},
             },
-            upsert=True,
         )
 
     async def reset_conversation(self, guild_id, user_id):
@@ -140,10 +157,10 @@ class MemoryService:
             "$setOnInsert": {"created_at": now},
         }
 
-        result = await self.guild_memories.update_one(
+        result = await self._upsert_with_duplicate_retry(
+            self.guild_memories,
             key,
             update,
-            upsert=True,
         )
 
         return result.upserted_id
@@ -202,7 +219,8 @@ class MemoryService:
 
         now = datetime.now(timezone.utc)
 
-        await self.user_memories.update_one(
+        await self._upsert_with_duplicate_retry(
+            self.user_memories,
             {
                 "guild_id": str(guild_id),
                 "user_id": str(user_id),
@@ -215,7 +233,6 @@ class MemoryService:
                 },
                 "$setOnInsert": {"created_at": now},
             },
-            upsert=True,
         )
 
     @staticmethod

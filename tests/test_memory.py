@@ -75,6 +75,64 @@ class MemoryServiceTests(unittest.IsolatedAsyncioTestCase):
             "user_id": "200",
         })
 
+    async def test_save_turn_retries_duplicate_key_first_write_race(self):
+        collection = SimpleNamespace(
+            update_one=AsyncMock(side_effect=[
+                DuplicateKeyError("concurrent first insert"),
+                SimpleNamespace(),
+            ])
+        )
+        self.database.user_conversations = collection
+        self.memory.conversations = collection
+
+        await self.memory.save_turn(100, 200, "question", "answer")
+
+        self.assertEqual(collection.update_one.await_count, 2)
+        first, second = collection.update_one.call_args_list
+        self.assertTrue(first.kwargs["upsert"])
+        self.assertFalse(second.kwargs["upsert"])
+        self.assertEqual(first.args[0], second.args[0])
+
+    async def test_save_guild_memory_retries_duplicate_key_first_write_race(self):
+        collection = SimpleNamespace(
+            update_one=AsyncMock(side_effect=[
+                DuplicateKeyError("concurrent first insert"),
+                SimpleNamespace(upserted_id=None),
+            ])
+        )
+        self.database.guild_memories = collection
+        self.memory.guild_memories = collection
+
+        await self.memory.save_guild_memory(
+            100, "agency project", "project details", "project", "high"
+        )
+
+        self.assertEqual(collection.update_one.await_count, 2)
+        first, second = collection.update_one.call_args_list
+        self.assertTrue(first.kwargs["upsert"])
+        self.assertFalse(second.kwargs["upsert"])
+        self.assertEqual(first.args[0], second.args[0])
+
+    async def test_save_user_memory_retries_duplicate_key_first_write_race(self):
+        collection = SimpleNamespace(
+            update_one=AsyncMock(side_effect=[
+                DuplicateKeyError("concurrent first insert"),
+                SimpleNamespace(),
+            ])
+        )
+        self.database.user_memories = collection
+        self.memory.user_memories = collection
+
+        await self.memory.save_user_memory(
+            100, 200, "preference", "likes concise answers"
+        )
+
+        self.assertEqual(collection.update_one.await_count, 2)
+        first, second = collection.update_one.call_args_list
+        self.assertTrue(first.kwargs["upsert"])
+        self.assertFalse(second.kwargs["upsert"])
+        self.assertEqual(first.args[0], second.args[0])
+
     async def test_save_relationship_event_is_scoped_and_keeps_latest_ten(self):
         self.database.user_memories.update_one = AsyncMock()
 
