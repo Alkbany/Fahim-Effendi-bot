@@ -2,6 +2,8 @@ import unittest
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, Mock
 
+from pymongo.errors import DuplicateKeyError
+
 from config import MAX_MEMORY_CONTEXT_CHARS
 from services.ai_service import AIService
 from services.memory_service import MemoryService
@@ -60,6 +62,7 @@ class MemoryServiceTests(unittest.IsolatedAsyncioTestCase):
             guild_memories=SimpleNamespace(),
             user_memories=SimpleNamespace(
                 find_one=AsyncMock(return_value=None),
+                update_one=AsyncMock(),
             ),
         )
         self.memory = MemoryService(self.database)
@@ -145,6 +148,84 @@ class MemoryServiceTests(unittest.IsolatedAsyncioTestCase):
         self.assertTrue(result["success"])
         self.assertEqual(result["status"], "normal")
 
+    async def test_relationship_update_retries_after_concurrent_write(self):
+        self.database.user_memories.find_one = AsyncMock(side_effect=[
+            {
+                "_id": "relationship-1",
+                "status": "reserved",
+                "improvement_count": 1,
+                "revision": 4,
+            },
+            {
+                "_id": "relationship-1",
+                "status": "reserved",
+                "improvement_count": 2,
+                "revision": 5,
+            },
+        ])
+        self.database.user_memories.update_one = AsyncMock(side_effect=[
+            SimpleNamespace(matched_count=0),
+            SimpleNamespace(matched_count=1),
+        ])
+
+        result = await self.memory.save_relationship_event(
+            100, 200, "improvement", "تصرف محترم وواضح", "تحسن السلوك."
+        )
+
+        self.assertTrue(result["success"])
+        self.assertEqual(result["status"], "normal")
+        self.assertEqual(result["improvement_count"], 0)
+        self.assertEqual(
+            self.database.user_memories.update_one.await_count, 2
+        )
+        first_filter = (
+            self.database.user_memories.update_one.call_args_list[0].args[0]
+        )
+        second_filter = (
+            self.database.user_memories.update_one.call_args_list[1].args[0]
+        )
+        self.assertEqual(first_filter, {
+            "_id": "relationship-1",
+            "revision": 4,
+        })
+        self.assertEqual(second_filter, {
+            "_id": "relationship-1",
+            "revision": 5,
+        })
+
+    async def test_first_write_duplicate_key_race_retries_existing_document(self):
+        self.database.user_memories.find_one = AsyncMock(side_effect=[
+            None,
+            {
+                "_id": "relationship-1",
+                "status": "normal",
+                "improvement_count": 0,
+                "revision": 1,
+            },
+        ])
+        self.database.user_memories.update_one = AsyncMock(side_effect=[
+            DuplicateKeyError("concurrent first insert"),
+            SimpleNamespace(matched_count=1),
+        ])
+
+        result = await self.memory.save_relationship_event(
+            100, 200, "conflict", "إهانة مباشرة", "خلاف مسجل."
+        )
+
+        self.assertTrue(result["success"])
+        self.assertEqual(result["status"], "awaiting_apology")
+        self.assertEqual(
+            self.database.user_memories.update_one.await_count, 2
+        )
+        first_call = self.database.user_memories.update_one.call_args_list[0]
+        second_call = self.database.user_memories.update_one.call_args_list[1]
+        self.assertTrue(first_call.kwargs["upsert"])
+        self.assertFalse(second_call.kwargs["upsert"])
+        self.assertEqual(second_call.args[0], {
+            "_id": "relationship-1",
+            "revision": 1,
+        })
+
     async def test_improvement_does_not_clear_unapologized_conflict(self):
         self.database.user_memories.find_one = AsyncMock(return_value={
             "status": "awaiting_apology",
@@ -154,7 +235,24 @@ class MemoryServiceTests(unittest.IsolatedAsyncioTestCase):
         result = await self.memory.save_relationship_event(
             100, 200, "improvement", "هدوء في الحديث", "تحسن محدود."
         )
+        self.assertFalse(result["success"])
         self.assertEqual(result["status"], "awaiting_apology")
+        self.database.user_memories.update_one.assert_not_awaited()
+
+    async def test_legacy_relationship_state_is_inferred_from_events(self):
+        self.database.user_memories.find_one = AsyncMock(return_value={
+            "key": "relationship_state",
+            "events": [
+                {"type": "conflict"},
+                {"type": "apology"},
+                {"type": "improvement"},
+            ],
+        })
+
+        result = await self.memory.get_relationship_memory(100, 200)
+
+        self.assertEqual(result["status"], "reserved")
+        self.assertEqual(result["improvement_count"], 1)
 
     async def test_save_relationship_event_rejects_unknown_event_type(self):
         self.database.user_memories.update_one = AsyncMock()
@@ -174,6 +272,8 @@ class MemoryServiceTests(unittest.IsolatedAsyncioTestCase):
         expected = {
             "key": "relationship_state",
             "value": "يوجد خلاف سابق.",
+            "status": "normal",
+            "improvement_count": 0,
         }
         self.database.user_memories.find_one = AsyncMock(
             return_value=expected

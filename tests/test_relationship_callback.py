@@ -7,7 +7,13 @@ import main
 class RelationshipCallbackTests(unittest.IsolatedAsyncioTestCase):
     async def test_callback_saves_event_for_bound_member_only(self):
         memory = type("Memory", (), {})()
-        memory.save_relationship_event = AsyncMock()
+        memory.save_relationship_event = AsyncMock(
+            return_value={
+                "success": False,
+                "status": "normal",
+                "message": "No unresolved conflict exists.",
+            }
+        )
 
         callback = main.make_relationship_event_callback(
             memory,
@@ -21,7 +27,14 @@ class RelationshipCallbackTests(unittest.IsolatedAsyncioTestCase):
             "يوجد خلاف سابق يحتاج إلى تحفظ.",
         )
 
-        self.assertEqual(result, {"success": True})
+        self.assertEqual(
+            result,
+            {
+                "success": False,
+                "status": "normal",
+                "message": "No unresolved conflict exists.",
+            },
+        )
         memory.save_relationship_event.assert_awaited_once_with(
             100,
             200,
