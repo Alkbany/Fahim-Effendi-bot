@@ -1,5 +1,5 @@
-discord.py
-google-genai
+discord.py==2.7.1
+google-genai==2.34.0
 pymongo==4.19.0
-ddgs
-python-dotenv
+ddgs==9.16.1
+python-dotenv==1.2.4
