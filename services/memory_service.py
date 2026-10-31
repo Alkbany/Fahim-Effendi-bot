@@ -1,6 +1,8 @@
 import re
 from datetime import datetime, timezone
 
+from pymongo.errors import DuplicateKeyError
+
 from config import (
     MAX_HISTORY_MESSAGES,
     MAX_PERSONAL_MEMORIES,
@@ -275,42 +277,46 @@ class MemoryService:
             "user_id": str(user_id),
             "key": "relationship_state",
         }
-        current = await self.user_memories.find_one(key, {"_id": 0}) or {}
-        status, improvement_count = self._derive_relationship_state(current)
-        now = datetime.now(timezone.utc)
+        # Optimistic compare-and-swap: compute the transition from one snapshot,
+        # then update only if that exact document still exists. Concurrent writers
+        # retry from the newest state instead of overwriting each other's events.
+        for _ in range(10):
+            current = await self.user_memories.find_one(key) or {}
+            status, improvement_count = self._derive_relationship_state(current)
 
-        if event_type == "conflict":
-            status = "awaiting_apology"
-            improvement_count = 0
-        elif event_type == "apology":
-            if status != "awaiting_apology":
-                return {
-                    "success": False,
-                    "status": status,
-                    "message": "No unresolved conflict exists; apology was not applied.",
-                }
-            status = "reserved"
-            improvement_count = 0
-        elif event_type == "improvement":
-            if status != "reserved":
-                return {
-                    "success": False,
-                    "status": status,
-                    "improvement_count": improvement_count,
-                    "message": "Improvement is only counted after an apology.",
-                }
-            improvement_count += 1
-            if improvement_count >= 3:
-                status = "normal"
-                improvement_count = 0
+            if event_type == "conflict":
+                next_status = "awaiting_apology"
+                next_improvement_count = 0
+            elif event_type == "apology":
+                if status != "awaiting_apology":
+                    return {
+                        "success": False,
+                        "status": status,
+                        "message": "No unresolved conflict exists; apology was not applied.",
+                    }
+                next_status = "reserved"
+                next_improvement_count = 0
+            else:
+                if status != "reserved":
+                    return {
+                        "success": False,
+                        "status": status,
+                        "improvement_count": improvement_count,
+                        "message": "Improvement is only counted after an apology.",
+                    }
+                next_improvement_count = improvement_count + 1
+                next_status = (
+                    "normal" if next_improvement_count >= 3 else "reserved"
+                )
+                if next_status == "normal":
+                    next_improvement_count = 0
 
-        await self.user_memories.update_one(
-            key,
-            {
+            now = datetime.now(timezone.utc)
+            update = {
                 "$set": {
                     "summary": summary,
-                    "status": status,
-                    "improvement_count": improvement_count,
+                    "status": next_status,
+                    "improvement_count": next_improvement_count,
                     "updated_at": now,
                 },
                 "$push": {
@@ -324,14 +330,38 @@ class MemoryService:
                     }
                 },
                 "$setOnInsert": {"created_at": now},
-            },
-            upsert=True,
-        )
+            }
+
+            try:
+                if current.get("_id") is not None:
+                    result = await self.user_memories.update_one(
+                        {"_id": current["_id"]},
+                        update,
+                        upsert=False,
+                    )
+                    if result.matched_count == 0:
+                        continue
+                else:
+                    # The compound unique index on (guild_id, user_id, key)
+                    # makes first-write races detectable. The loser retries.
+                    result = await self.user_memories.update_one(
+                        key,
+                        update,
+                        upsert=True,
+                    )
+            except DuplicateKeyError:
+                continue
+
+            return {
+                "success": True,
+                "status": next_status,
+                "improvement_count": next_improvement_count,
+            }
 
         return {
-            "success": True,
-            "status": status,
-            "improvement_count": improvement_count,
+            "success": False,
+            "status": "unknown",
+            "message": "Relationship state changed concurrently; retry the event.",
         }
 
     async def get_relationship_memory(self, guild_id, user_id):
