@@ -64,6 +64,7 @@ class AskCommandTests(unittest.IsolatedAsyncioTestCase):
                 "shared": [{"topic": "agency", "summary": "meeting"}],
             },
             relationship_event_callback=ANY,
+            memory_event_callbacks=ANY,
         )
 
         memory.save_turn.assert_awaited_once_with(
