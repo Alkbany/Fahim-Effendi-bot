@@ -71,6 +71,9 @@ class RelationshipGateTests(unittest.IsolatedAsyncioTestCase):
 
         instruction = ai.request_model.await_args.args[3]
         self.assertIn("urgent safety request", instruction)
+        self.assertIsNone(
+            ai.request_model.await_args.kwargs["relationship_event_callback"]
+        )
 
     async def test_reserved_state_allows_requests_with_cautious_context(self):
         ai = self.make_ai()
