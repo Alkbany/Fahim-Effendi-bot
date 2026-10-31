@@ -2,6 +2,8 @@ import unittest
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, Mock
 
+from pymongo.errors import DuplicateKeyError
+
 from config import MAX_MEMORY_CONTEXT_CHARS
 from services.ai_service import AIService
 from services.memory_service import MemoryService
@@ -157,8 +159,8 @@ class MemoryServiceTests(unittest.IsolatedAsyncioTestCase):
             {
                 "_id": "relationship-1",
                 "status": "reserved",
-                "improvement_count": 1,
-                "revision": 4,
+                "improvement_count": 2,
+                "revision": 5,
             },
         ])
         self.database.user_memories.update_one = AsyncMock(side_effect=[
@@ -171,8 +173,8 @@ class MemoryServiceTests(unittest.IsolatedAsyncioTestCase):
         )
 
         self.assertTrue(result["success"])
-        self.assertEqual(result["status"], "reserved")
-        self.assertEqual(result["improvement_count"], 2)
+        self.assertEqual(result["status"], "normal")
+        self.assertEqual(result["improvement_count"], 0)
         self.assertEqual(
             self.database.user_memories.update_one.await_count, 2
         )
@@ -188,7 +190,40 @@ class MemoryServiceTests(unittest.IsolatedAsyncioTestCase):
         })
         self.assertEqual(second_filter, {
             "_id": "relationship-1",
-            "revision": 4,
+            "revision": 5,
+        })
+
+    async def test_first_write_duplicate_key_race_retries_existing_document(self):
+        self.database.user_memories.find_one = AsyncMock(side_effect=[
+            None,
+            {
+                "_id": "relationship-1",
+                "status": "normal",
+                "improvement_count": 0,
+                "revision": 1,
+            },
+        ])
+        self.database.user_memories.update_one = AsyncMock(side_effect=[
+            DuplicateKeyError("concurrent first insert"),
+            SimpleNamespace(matched_count=1),
+        ])
+
+        result = await self.memory.save_relationship_event(
+            100, 200, "conflict", "إهانة مباشرة", "خلاف مسجل."
+        )
+
+        self.assertTrue(result["success"])
+        self.assertEqual(result["status"], "awaiting_apology")
+        self.assertEqual(
+            self.database.user_memories.update_one.await_count, 2
+        )
+        first_call = self.database.user_memories.update_one.call_args_list[0]
+        second_call = self.database.user_memories.update_one.call_args_list[1]
+        self.assertTrue(first_call.kwargs["upsert"])
+        self.assertFalse(second_call.kwargs["upsert"])
+        self.assertEqual(second_call.args[0], {
+            "_id": "relationship-1",
+            "revision": 1,
         })
 
     async def test_improvement_does_not_clear_unapologized_conflict(self):
