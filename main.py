@@ -7,6 +7,7 @@ from discord.ext import commands
 
 from config import DISCORD_TOKEN, FAHIM_CHANNEL_ID, validate_config
 from services.ai_service import AIService
+from services.context_service import build_reply_context
 from services.database import DatabaseService
 from services.memory_service import MemoryService
 from services.search_service import SearchService
@@ -123,7 +124,32 @@ class FahimBot(commands.Bot):
                 await super().close()
 
 
-    async def should_respond_to_message(self, message: discord.Message):
+    async def resolve_reference_message(self, message: discord.Message):
+        """Resolve a Discord reply once so routing and prompt context use the same message."""
+        if not message.reference:
+            return None
+
+        reference = message.reference.resolved
+        if reference is not None:
+            return reference
+
+        try:
+            return await message.channel.fetch_message(
+                message.reference.message_id
+            )
+        except (
+            discord.NotFound,
+            discord.Forbidden,
+            discord.HTTPException,
+        ):
+            logger.warning("Could not resolve replied-to message.")
+            return None
+
+    async def should_respond_to_message(
+        self,
+        message: discord.Message,
+        reference_message=None,
+    ):
         if message.author.bot or message.guild is None or self.user is None:
             return False
 
@@ -134,30 +160,13 @@ class FahimBot(commands.Bot):
 
         if (
             re.search(rf"<@!?{self.user.id}>", content)
-            or re.search(r"يا\s+فهيم\s+[اأإ]?فندي", content) is not None
+            or re.search(r"يا\\s+فهيم\\s+[اأإ]?فندي", content) is not None
         ):
             return True
 
-        if not message.reference:
-            return False
-
-        reference = message.reference.resolved
-
-        if reference is None:
-            try:
-                reference = await message.channel.fetch_message(
-                    message.reference.message_id
-                )
-            except (
-                discord.NotFound,
-                discord.Forbidden,
-                discord.HTTPException,
-            ):
-                return False
-
         return (
-            reference is not None
-            and reference.author.id == self.user.id
+            reference_message is not None
+            and reference_message.author.id == self.user.id
         )
 
     async def on_message(self, message: discord.Message):
@@ -169,7 +178,8 @@ class FahimBot(commands.Bot):
 
         content = message.content or ""
 
-        if not await self.should_respond_to_message(message):
+        reference_message = await self.resolve_reference_message(message)
+        if not await self.should_respond_to_message(message, reference_message):
             await self.process_commands(message)
             return
 
@@ -182,6 +192,18 @@ class FahimBot(commands.Bot):
 
         if not question and message.reference:
             question = content.strip()
+
+        # A reply to Fahim must carry the exact message being replied to.
+        # Recent chat history alone is insufficient when the target is older.
+        if (
+            reference_message is not None
+            and self.user is not None
+            and reference_message.author.id == self.user.id
+        ):
+            question = build_reply_context(
+                question,
+                reference_message.content or "",
+            )
 
         if not question:
             await message.reply(
