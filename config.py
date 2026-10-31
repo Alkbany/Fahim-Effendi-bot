@@ -1,5 +1,10 @@
 import os
 
+from dotenv import load_dotenv
+
+
+load_dotenv()
+
 
 # API Keys and Secrets
 DISCORD_TOKEN = os.getenv("DISCORD_TOKEN")
@@ -52,4 +57,6 @@ MAX_MEMORY_TEXT_CHARS = 1000
 MAX_MEMORY_CONTEXT_CHARS = 4000
 
 # Dedicated channel for Fahim
-FAHIM_CHANNEL_ID = 1320069245232742588
+FAHIM_CHANNEL_ID = int(
+    os.getenv("FAHIM_CHANNEL_ID", "1320069245232742588")
+)
