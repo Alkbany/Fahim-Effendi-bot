@@ -1,0 +1,19 @@
+__pycache__/
+*.py[cod]
+
+.env*
+!.env.example
+
+.venv/
+venv/
+# Test and coverage artifacts
+.pytest_cache/
+.coverage
+htmlcov/
+
+# Logs and build artifacts
+*.log
+build/
+dist/
+*.egg-info/
+fahim_final_model_results.json

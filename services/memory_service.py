@@ -1,0 +1,344 @@
+import re
+from datetime import datetime, timezone
+
+from config import (
+    MAX_HISTORY_MESSAGES,
+    MAX_PERSONAL_MEMORIES,
+    MAX_GUILD_MEMORIES,
+    MAX_MEMORY_TEXT_CHARS,
+)
+
+
+class MemoryService:
+
+    def __init__(self, database_service):
+        self.conversations = database_service.user_conversations
+        self.guild_memories = database_service.guild_memories
+        self.user_memories = database_service.user_memories
+
+    @staticmethod
+    def _search_terms(text):
+        words = re.findall(r"[\w\u0600-\u06FF]+", text.lower())
+        return list(dict.fromkeys(
+            word for word in words if len(word) > 2
+        ))[:10]
+
+    @staticmethod
+    def _rank_documents(documents, terms, fields, limit):
+        ranked = []
+
+        for document in documents:
+            searchable = " ".join(
+                str(document.get(field, ""))
+                for field in fields
+            ).lower()
+
+            score = sum(
+                1 for term in terms if term in searchable
+            )
+
+            if score:
+                document.pop("_id", None)
+                ranked.append((score, document))
+
+        ranked.sort(key=lambda item: item[0], reverse=True)
+
+        return [document for _, document in ranked[:limit]]
+
+    async def get_history(self, guild_id, user_id):
+        document = await self.conversations.find_one(
+            {
+                "guild_id": str(guild_id),
+                "user_id": str(user_id),
+            },
+            {"history": 1, "_id": 0},
+        )
+
+        if not document:
+            return []
+
+        return document.get("history", [])
+
+    async def save_turn(self, guild_id, user_id, question, answer):
+        now = datetime.now(timezone.utc)
+
+        key = {
+            "guild_id": str(guild_id),
+            "user_id": str(user_id),
+        }
+
+        messages = [
+            {"role": "user", "text": question, "timestamp": now},
+            {"role": "model", "text": answer, "timestamp": now},
+        ]
+
+        await self.conversations.update_one(
+            key,
+            {
+                "$push": {
+                    "history": {
+                        "$each": messages,
+                        "$slice": -MAX_HISTORY_MESSAGES,
+                    }
+                },
+                "$set": {"updated_at": now},
+                "$setOnInsert": {"created_at": now},
+            },
+            upsert=True,
+        )
+
+    async def reset_conversation(self, guild_id, user_id):
+        result = await self.conversations.delete_one(
+            {
+                "guild_id": str(guild_id),
+                "user_id": str(user_id),
+            }
+        )
+
+        return result.deleted_count > 0
+
+    # -------------------------
+    # Shared Guild Memory
+    # -------------------------
+
+    async def save_guild_memory(
+        self,
+        guild_id,
+        topic,
+        summary,
+        category,
+        confidence,
+        viewpoints=None,
+        sources=None,
+    ):
+        topic = str(topic).strip()
+        summary = str(summary).strip()
+
+        if not topic or not summary:
+            raise ValueError("Memory topic and summary cannot be empty.")
+        if len(topic) > 200 or len(summary) > MAX_MEMORY_TEXT_CHARS:
+            raise ValueError("Guild memory exceeds the allowed size.")
+
+        now = datetime.now(timezone.utc)
+
+        key = {
+            "guild_id": str(guild_id),
+            "topic": topic,
+        }
+
+        update = {
+            "$set": {
+                "summary": summary,
+                "category": category,
+                "confidence": confidence,
+                "viewpoints": viewpoints or [],
+                "sources": sources or [],
+                "updated_at": now,
+            },
+            "$setOnInsert": {"created_at": now},
+        }
+
+        result = await self.guild_memories.update_one(
+            key,
+            update,
+            upsert=True,
+        )
+
+        return result.upserted_id
+
+    async def get_relevant_guild_memories(
+        self, guild_id, question, limit=3
+    ):
+        terms = self._search_terms(question)
+        limit = max(1, min(int(limit), MAX_GUILD_MEMORIES))
+
+        if not terms:
+            return []
+
+        query = {
+            "guild_id": str(guild_id),
+            "$or": [
+                {
+                    field: {
+                        "$regex": re.escape(term),
+                        "$options": "i",
+                    }
+                }
+                for term in terms
+                for field in ("topic", "summary", "category")
+            ],
+        }
+
+        cursor = self.guild_memories.find(
+            query,
+            {"_id": 0},
+        ).limit(30)
+
+        documents = await cursor.to_list(length=30)
+
+        return self._rank_documents(
+            documents,
+            terms,
+            ("topic", "summary", "category"),
+            limit,
+        )
+
+    # -------------------------
+    # Personal User Memory
+    # -------------------------
+
+    async def save_user_memory(
+        self, guild_id, user_id, key, value
+    ):
+        key = str(key).strip()
+        value = str(value).strip()
+
+        if not key or not value:
+            raise ValueError("Memory key and value cannot be empty.")
+        if len(key) > 100 or len(value) > MAX_MEMORY_TEXT_CHARS:
+            raise ValueError("User memory exceeds the allowed size.")
+
+        now = datetime.now(timezone.utc)
+
+        await self.user_memories.update_one(
+            {
+                "guild_id": str(guild_id),
+                "user_id": str(user_id),
+                "key": key,
+            },
+            {
+                "$set": {
+                    "value": value,
+                    "updated_at": now,
+                },
+                "$setOnInsert": {"created_at": now},
+            },
+            upsert=True,
+        )
+
+    async def save_relationship_event(
+        self, guild_id, user_id, event_type, details, summary
+    ):
+        allowed_types = {"conflict", "apology", "improvement"}
+
+        if not isinstance(event_type, str):
+            raise ValueError("Unknown relationship event type.")
+        event_type = event_type.strip()
+        details = str(details).strip()
+        summary = str(summary).strip()
+
+        if event_type not in allowed_types:
+            raise ValueError("Unknown relationship event type.")
+        if not details or not summary:
+            raise ValueError("Event details and summary cannot be empty.")
+        if len(details) > MAX_MEMORY_TEXT_CHARS:
+            raise ValueError("Relationship event exceeds the allowed size.")
+        if len(summary) > MAX_MEMORY_TEXT_CHARS:
+            raise ValueError("Relationship summary exceeds the allowed size.")
+
+        key = {
+            "guild_id": str(guild_id),
+            "user_id": str(user_id),
+            "key": "relationship_state",
+        }
+        current = await self.user_memories.find_one(key, {"_id": 0}) or {}
+        status = current.get("status", "normal")
+        improvement_count = int(current.get("improvement_count", 0) or 0)
+        now = datetime.now(timezone.utc)
+
+        if event_type == "conflict":
+            status = "awaiting_apology"
+            improvement_count = 0
+        elif event_type == "apology":
+            if status != "awaiting_apology":
+                return {
+                    "success": False,
+                    "status": status,
+                    "message": "No unresolved conflict exists; apology was not applied.",
+                }
+            status = "reserved"
+            improvement_count = 0
+        elif event_type == "improvement" and status == "reserved":
+            improvement_count += 1
+            if improvement_count >= 3:
+                status = "normal"
+                improvement_count = 0
+
+        await self.user_memories.update_one(
+            key,
+            {
+                "$set": {
+                    "summary": summary,
+                    "status": status,
+                    "improvement_count": improvement_count,
+                    "updated_at": now,
+                },
+                "$push": {
+                    "events": {
+                        "$each": [{
+                            "type": event_type,
+                            "details": details,
+                            "timestamp": now,
+                        }],
+                        "$slice": -10,
+                    }
+                },
+                "$setOnInsert": {"created_at": now},
+            },
+            upsert=True,
+        )
+
+        return {
+            "success": True,
+            "status": status,
+            "improvement_count": improvement_count,
+        }
+
+    async def get_relationship_memory(self, guild_id, user_id):
+        """Always retrieve this member's relationship state."""
+        return await self.user_memories.find_one(
+            {
+                "guild_id": str(guild_id),
+                "user_id": str(user_id),
+                "key": "relationship_state",
+            },
+            {"_id": 0},
+        )
+
+    async def get_relevant_user_memories(
+        self, guild_id, user_id, question, limit=5
+    ):
+        terms = self._search_terms(question)
+        limit = max(1, min(int(limit), MAX_PERSONAL_MEMORIES))
+
+        if not terms:
+            return []
+
+        query = {
+            "guild_id": str(guild_id),
+            "user_id": str(user_id),
+            "$or": [
+                {
+                    field: {
+                        "$regex": re.escape(term),
+                        "$options": "i",
+                    }
+                }
+                for term in terms
+                for field in ("key", "value")
+            ],
+        }
+
+        cursor = self.user_memories.find(
+            query,
+            {"_id": 0},
+        ).limit(30)
+
+        documents = await cursor.to_list(length=30)
+
+        return self._rank_documents(
+            documents,
+            terms,
+            ("key", "value"),
+            limit,
+        )

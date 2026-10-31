@@ -1,0 +1,53 @@
+import asyncio
+import logging
+from ddgs import DDGS
+
+logger = logging.getLogger("fahim.search")
+
+
+class SearchService:
+    def __init__(self, max_results=5):
+        self.max_results = max_results
+
+    def _search_sync(self, query):
+        return DDGS().text(
+            query,
+            max_results=self.max_results,
+            safesearch="moderate",
+        )
+
+    async def search(self, query):
+        if not isinstance(query, str) or not query.strip():
+            return []
+
+        try:
+            results = await asyncio.to_thread(
+                self._search_sync,
+                query.strip(),
+            )
+
+            clean_results = []
+
+            for item in results or []:
+                if not isinstance(item, dict):
+                    continue
+
+                url = item.get("href")
+                if not isinstance(url, str):
+                    continue
+
+                if not url.startswith(("https://", "http://")):
+                    continue
+
+                clean_results.append({
+                    "title": str(item.get("title") or "بدون عنوان")[:200],
+                    "url": url[:1000],
+                    "snippet": str(item.get("body") or "")[:1000],
+                })
+
+            logger.info("Search returned %d results.", len(clean_results))
+            return clean_results
+
+        except Exception:
+            logger.exception("External search failed.")
+            return []

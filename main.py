@@ -1,83 +1,272 @@
+import asyncio
+import logging
+import re
 
-import os
-import time
 import discord
-
 from discord.ext import commands
-from google import genai
-from google.genai import types
-from motor.motor_asyncio import AsyncIOMotorClient
+
+from config import DISCORD_TOKEN, FAHIM_CHANNEL_ID, validate_config
+from services.ai_service import AIService
+from services.database import DatabaseService
+from services.memory_service import MemoryService
+from services.search_service import SearchService
 
 
 # =========================
-# Configuration
+# Logging
 # =========================
 
-MODEL_NAME = "gemini-3.8-flash"
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s | %(levelname)s | %(name)s | %(message)s",
+)
 
-SYSTEM_INSTRUCTION = """
-You are Fahim Effendi, a helpful and friendly Discord assistant.
-Reply naturally, clearly, and concisely.
-"""
+logger = logging.getLogger("fahim")
 
 
 # =========================
-# Discord Bot
+# Discord Helpers
+# =========================
+
+def make_relationship_event_callback(memory_service, guild_id, user_id):
+    async def record_event(event_type, details, summary):
+        await memory_service.save_relationship_event(
+            guild_id,
+            user_id,
+            event_type,
+            details,
+            summary,
+        )
+        return {"success": True}
+
+    return record_event
+
+
+def split_message(text, limit=1900):
+    """Split long responses into Discord-safe messages."""
+    chunks = []
+
+    while len(text) > limit:
+        split_at = text.rfind("\n", 0, limit)
+
+        if split_at < limit // 2:
+            split_at = limit
+
+        chunks.append(text[:split_at])
+        text = text[split_at:].lstrip()
+
+    if text:
+        chunks.append(text)
+
+    return chunks
+
+
+# =========================
+# Fahim Bot
 # =========================
 
 class FahimBot(commands.Bot):
 
     def __init__(self):
         intents = discord.Intents.default()
+        intents.message_content = True
 
         super().__init__(
             command_prefix="!",
-            intents=intents
+            intents=intents,
         )
 
-        self.mongo_client = None
-        self.db = None
-        self.chats_collection = None
-        self.ai_client = None
+        self.database_service = None
+        self.memory_service = None
+        self.ai_service = None
+        self.search_service = None
 
     async def setup_hook(self):
+        validate_config()
 
-        # MongoDB
-        mongo_uri = os.getenv("MONGO_URI")
+        # Connect to MongoDB
+        self.database_service = DatabaseService()
+        await self.database_service.connect()
 
-        if not mongo_uri:
-            raise ValueError("MONGO_URI is missing!")
+        # Initialize memory service
+        self.memory_service = MemoryService(
+            self.database_service
+        )
 
-        self.mongo_client = AsyncIOMotorClient(mongo_uri)
+        # Initialize search service
+        self.search_service = SearchService()
 
-        self.db = self.mongo_client["fahim_database"]
-        self.chats_collection = self.db["user_chats"]
+        # Initialize AI service
+        self.ai_service = AIService(self.search_service)
 
-        # Gemini Async Client
-        gemini_key = os.getenv("GEMINI_API_KEY")
+        # Register Discord slash commands
+        synced = await self.tree.sync()
 
-        if not gemini_key:
-            raise ValueError("GEMINI_API_KEY is missing!")
-
-        self.ai_client = genai.Client(
-            api_key=gemini_key
-        ).aio
-
-        # Sync Discord commands
-        await self.tree.sync()
-
-        print("Fahim Effendi is online and ready!")
+        logger.info(
+            "Fahim initialized successfully. Synced %s commands.",
+            len(synced),
+        )
 
     async def close(self):
+        try:
+            if self.ai_service:
+                try:
+                    await self.ai_service.client.aclose()
+                except Exception:
+                    logger.exception("Failed to close Gemini client.")
+        finally:
+            try:
+                if self.database_service:
+                    await self.database_service.close()
+            except Exception:
+                logger.exception("Failed to close MongoDB connection.")
+            finally:
+                await super().close()
 
-        if self.mongo_client:
-            self.mongo_client.close()
 
-        await super().close()
+    async def should_respond_to_message(self, message: discord.Message):
+        if message.author.bot or message.guild is None or self.user is None:
+            return False
+
+        if message.channel.id == FAHIM_CHANNEL_ID:
+            return True
+
+        content = message.content or ""
+
+        if (
+            re.search(rf"<@!?{self.user.id}>", content)
+            or re.search(r"يا\s+فهيم\s+[اأإ]?فندي", content) is not None
+        ):
+            return True
+
+        if not message.reference:
+            return False
+
+        reference = message.reference.resolved
+
+        if reference is None:
+            try:
+                reference = await message.channel.fetch_message(
+                    message.reference.message_id
+                )
+            except (
+                discord.NotFound,
+                discord.Forbidden,
+                discord.HTTPException,
+            ):
+                return False
+
+        return (
+            reference is not None
+            and reference.author.id == self.user.id
+        )
+
+    async def on_message(self, message: discord.Message):
+        if message.author.bot or message.guild is None:
+            return
+
+        if self.user is None:
+            return
+
+        content = message.content or ""
+
+        if not await self.should_respond_to_message(message):
+            await self.process_commands(message)
+            return
+
+        question = re.sub(
+            rf"<@!?{self.user.id}>",
+            "",
+            content,
+        )
+        question = re.sub(r"يا\s+فهيم\s+[اأإ]?فندي", "", question).strip()
+
+        if not question and message.reference:
+            question = content.strip()
+
+        if not question:
+            await message.reply(
+                "أؤمر يا سيدي، سامعك.",
+                mention_author=False,
+            )
+            await self.process_commands(message)
+            return
+
+        try:
+            async with message.channel.typing():
+                guild_id = message.guild.id
+                user_id = message.author.id
+
+                history = await self.memory_service.get_history(
+                    guild_id,
+                    user_id,
+                )
+
+                personal_memories, shared_memories, relationship_memory = await asyncio.gather(
+                    self.memory_service.get_relevant_user_memories(
+                        guild_id, user_id, question
+                    ),
+                    self.memory_service.get_relevant_guild_memories(
+                        guild_id, question
+                    ),
+                    self.memory_service.get_relationship_memory(
+                        guild_id, user_id
+                    ),
+                )
+
+                if relationship_memory:
+                    personal_memories = [
+                        item for item in personal_memories
+                        if item.get("key") != "relationship_state"
+                    ]
+                    personal_memories.append(relationship_memory)
+
+                answer = await self.ai_service.generate_response(
+                    question,
+                    history=history,
+                    memories={
+                        "personal": personal_memories,
+                        "shared": shared_memories,
+                    },
+                    relationship_event_callback=make_relationship_event_callback(
+                        self.memory_service, guild_id, user_id
+                    ),
+                )
+
+                await self.memory_service.save_turn(
+                    guild_id,
+                    user_id,
+                    question,
+                    answer,
+                )
+
+            chunks = split_message(answer)
+
+            for index, chunk in enumerate(chunks):
+                if index == 0:
+                    await message.reply(
+                        chunk,
+                        mention_author=False,
+                        allowed_mentions=discord.AllowedMentions.none(),
+                    )
+                else:
+                    await message.channel.send(
+                        chunk,
+                        allowed_mentions=discord.AllowedMentions.none(),
+                    )
+
+        except Exception:
+            logger.exception("Error while processing a message.")
+
+            await message.reply(
+                "حصلت مشكلة عندي يا سيدي. جرّب تكلمني كمان شوية.",
+                mention_author=False,
+            )
+
+        await self.process_commands(message)
 
 
 bot = FahimBot()
-
 
 # =========================
 # Ask Command
@@ -85,124 +274,87 @@ bot = FahimBot()
 
 @bot.tree.command(
     name="ask",
-    description="Ask Fahim Effendi"
+    description="Talk to Fahim Effendi",
 )
 async def ask(
     interaction: discord.Interaction,
-    question: str
+    question: str,
 ):
+    if interaction.guild_id is None:
+        await interaction.response.send_message(
+            "يا سيدي، كلامنا هنا في الوكالة. ادخل السيرفر وكلمني هناك.",
+            ephemeral=True,
+        )
+        return
 
-    await interaction.response.defer()
-
-    user_id = str(interaction.user.id)
+    await interaction.response.send_message(
+        "ثواني يا سيدي، فهيم أفندي بيقلب في الدفاتر... 📚"
+    )
 
     try:
+        guild_id = interaction.guild_id
+        user_id = interaction.user.id
 
-        # 1. Read history from MongoDB
-        start = time.perf_counter()
-
-        user_data = await bot.chats_collection.find_one(
-            {"_id": user_id}
+        # Retrieve this member's conversation history
+        history = await bot.memory_service.get_history(
+            guild_id,
+            user_id,
         )
 
-        db_history = (
-            user_data.get("history", [])
-            if user_data
-            else []
+        # Generate Fahim's response
+        personal_memories, shared_memories, relationship_memory = await asyncio.gather(
+            bot.memory_service.get_relevant_user_memories(
+                guild_id, user_id, question
+            ),
+            bot.memory_service.get_relevant_guild_memories(
+                guild_id, question
+            ),
+            bot.memory_service.get_relationship_memory(
+                guild_id, user_id
+            ),
         )
 
-        db_read_time = time.perf_counter() - start
+        if relationship_memory:
+            personal_memories = [
+                item for item in personal_memories
+                if item.get("key") != "relationship_state"
+            ]
+            personal_memories.append(relationship_memory)
 
-        # 2. Convert history to Gemini format
-        gemini_history = []
-
-        for msg in db_history:
-
-            gemini_history.append(
-                types.Content(
-                    role=msg["role"],
-                    parts=[
-                        types.Part.from_text(
-                            text=msg["text"]
-                        )
-                    ]
-                )
-            )
-
-        # 3. Send request to Gemini
-        start = time.perf_counter()
-
-        chat = bot.ai_client.chats.create(
-            model=MODEL_NAME,
-            history=gemini_history,
-            config=types.GenerateContentConfig(
-                system_instruction=SYSTEM_INSTRUCTION,
-                thinking_config=types.ThinkingConfig(
-                    thinking_level="low"
-                ),
-                max_output_tokens=256
-            )
-        )
-
-        response = await chat.send_message(question)
-
-        gemini_time = time.perf_counter() - start
-
-        answer = response.text or "I couldn't generate a response."
-
-        # 4. Save conversation
-        db_history.append({
-            "role": "user",
-            "text": question
-        })
-
-        db_history.append({
-            "role": "model",
-            "text": answer
-        })
-
-        start = time.perf_counter()
-
-        await bot.chats_collection.update_one(
-            {"_id": user_id},
-            {
-                "$set": {
-                    "history": db_history
-                }
+        answer = await bot.ai_service.generate_response(
+            question,
+            history=history,
+            memories={
+                "personal": personal_memories,
+                "shared": shared_memories,
             },
-            upsert=True
+            relationship_event_callback=make_relationship_event_callback(
+                bot.memory_service, guild_id, user_id
+            ),
         )
 
-        db_save_time = time.perf_counter() - start
-
-        # 5. Print performance information
-        total_time = (
-            db_read_time +
-            gemini_time +
-            db_save_time
+        # Save the conversation
+        await bot.memory_service.save_turn(
+            guild_id,
+            user_id,
+            question,
+            answer,
         )
 
-        print(
-            f"\n[ASK PERFORMANCE] "
-            f"DB Read: {db_read_time:.2f}s | "
-            f"Gemini: {gemini_time:.2f}s | "
-            f"DB Save: {db_save_time:.2f}s | "
-            f"Total: {total_time:.2f}s"
+        # Replace the temporary message with Fahim's answer
+        chunks = split_message(answer)
+        await interaction.edit_original_response(
+            content=chunks[0]
         )
 
-        # 6. Send response to Discord
-        if len(answer) > 2000:
-            answer = answer[:1997] + "..."
+        for chunk in chunks[1:]:
+            await interaction.followup.send(chunk)
 
-        await interaction.followup.send(answer)
+    except Exception:
+        logger.exception("Error while processing /ask")
 
-    except Exception as e:
-
-        import traceback
-        traceback.print_exc()
-
-        await interaction.followup.send(
-            f"Sorry, an error occurred: {e}"
+        await interaction.edit_original_response(
+            content="حصلت مشكلة عندي يا سيدي. جرّب تكلمني كمان شوية."
         )
 
 
@@ -212,39 +364,40 @@ async def ask(
 
 @bot.tree.command(
     name="reset",
-    description="Delete your conversation memory"
+    description="Reset your conversation with Fahim",
 )
 async def reset(
-    interaction: discord.Interaction
+    interaction: discord.Interaction,
 ):
-
-    user_id = str(interaction.user.id)
+    if interaction.guild_id is None:
+        await interaction.response.send_message(
+            "الأمر ده متاح داخل الوكالة بس.",
+            ephemeral=True,
+        )
+        return
 
     try:
-
-        result = await bot.chats_collection.delete_one(
-            {"_id": user_id}
+        deleted = await bot.memory_service.reset_conversation(
+            interaction.guild_id,
+            interaction.user.id,
         )
 
-        if result.deleted_count > 0:
-
-            await interaction.response.send_message(
-                "Your conversation memory has been deleted!"
-            )
-
+        if deleted:
+            message = "اتمسح سجل محادثتنا في الوكالة يا سيدي."
         else:
-
-            await interaction.response.send_message(
-                "You don't have any saved conversation history."
-            )
-
-    except Exception as e:
-
-        import traceback
-        traceback.print_exc()
+            message = "مفيش عندي سجل محادثة ليك هنا أصلًا."
 
         await interaction.response.send_message(
-            f"An error occurred: {e}"
+            message,
+            ephemeral=True,
+        )
+
+    except Exception:
+        logger.exception("Error while processing /reset")
+
+        await interaction.response.send_message(
+            "حصلت مشكلة وأنا بنفذ الأمر. حاول تاني بعد شوية.",
+            ephemeral=True,
         )
 
 
@@ -253,10 +406,5 @@ async def reset(
 # =========================
 
 if __name__ == "__main__":
-
-    discord_token = os.getenv("DISCORD_TOKEN")
-
-    if not discord_token:
-        raise ValueError("DISCORD_TOKEN is missing!")
-
-    bot.run(discord_token)
+    validate_config()
+    bot.run(DISCORD_TOKEN)
