@@ -9,6 +9,7 @@ An Egyptian Arabic Discord companion powered by Gemini, with MongoDB-backed conv
 - Continues conversations when members reply to one of Fahim's messages.
 - Provides the `/ask` slash command and a private `/reset` command for clearing the caller's conversation history.
 - Stores conversation history separately for each member in each server.
+- Saves durable personal facts privately per member and durable agency facts as shared server memories.
 - Keeps relationship state scoped to the specific member and server.
 - Uses web search for current information and requires a search before answering detected market-price questions.
 - Retries temporary Gemini API failures with a fallback model without repeating searches or relationship side effects.
