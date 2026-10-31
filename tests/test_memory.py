@@ -152,11 +152,13 @@ class MemoryServiceTests(unittest.IsolatedAsyncioTestCase):
                 "_id": "relationship-1",
                 "status": "reserved",
                 "improvement_count": 1,
+                "revision": 4,
             },
             {
                 "_id": "relationship-1",
                 "status": "reserved",
                 "improvement_count": 1,
+                "revision": 4,
             },
         ])
         self.database.user_memories.update_one = AsyncMock(side_effect=[
@@ -180,8 +182,14 @@ class MemoryServiceTests(unittest.IsolatedAsyncioTestCase):
         second_filter = (
             self.database.user_memories.update_one.call_args_list[1].args[0]
         )
-        self.assertEqual(first_filter, {"_id": "relationship-1"})
-        self.assertEqual(second_filter, {"_id": "relationship-1"})
+        self.assertEqual(first_filter, {
+            "_id": "relationship-1",
+            "revision": 4,
+        })
+        self.assertEqual(second_filter, {
+            "_id": "relationship-1",
+            "revision": 4,
+        })
 
     async def test_improvement_does_not_clear_unapologized_conflict(self):
         self.database.user_memories.find_one = AsyncMock(return_value={
