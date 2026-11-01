@@ -115,16 +115,21 @@ class MusicCog(commands.Cog):
                     results = await wavelink.Playable.search(search_query, source="ytsearch")
                 if not results:
                     return {"success": False, "message": "ملقتش نتيجة قابلة للتشغيل للطلب ده."}
-                if isinstance(results, wavelink.Playlist):
+                is_search_playlist = (
+                    isinstance(results, wavelink.Playlist)
+                    and (results.name or "").strip().lower() == "search results"
+                )
+                if isinstance(results, wavelink.Playlist) and not is_search_playlist:
                     tracks = results.tracks[:MAX_PLAYLIST_TRACKS]
                     playlist_name = results.name or "قائمة الأغاني"
                 else:
-                    tracks = [results[0]]
-                    alternatives = list(results[1:6])
+                    search_tracks = results.tracks if isinstance(results, wavelink.Playlist) else results
+                    tracks = [search_tracks[0]]
+                    alternatives = list(search_tracks[1:6])
                     self._fallback_tracks[tracks[0].identifier] = alternatives
                     logger.info(
                         "AI music search returned %s tracks; stored %s alternatives | query=%s | primary_id=%s",
-                        len(results),
+                        len(search_tracks),
                         len(alternatives),
                         search_query,
                         tracks[0].identifier,
@@ -253,17 +258,22 @@ class MusicCog(commands.Cog):
             )
             return
 
-        if isinstance(results, wavelink.Playlist):
+        is_search_playlist = (
+            isinstance(results, wavelink.Playlist)
+            and (results.name or "").strip().lower() == "search results"
+        )
+        if isinstance(results, wavelink.Playlist) and not is_search_playlist:
             tracks = results.tracks[:MAX_PLAYLIST_TRACKS]
             playlist_name = results.name or "Playlist"
             truncated = len(results.tracks) > len(tracks)
         else:
-            tracks = [results[0]]
-            alternatives = list(results[1:6])
+            search_tracks = results.tracks if isinstance(results, wavelink.Playlist) else results
+            tracks = [search_tracks[0]]
+            alternatives = list(search_tracks[1:6])
             self._fallback_tracks[tracks[0].identifier] = alternatives
             logger.info(
                 "Slash play search returned %s tracks; stored %s alternatives | query=%s | primary_id=%s",
-                len(results),
+                len(search_tracks),
                 len(alternatives),
                 query.strip(),
                 tracks[0].identifier,
