@@ -3,10 +3,11 @@ import logging
 import re
 
 import discord
+import wavelink
 from discord.ext import commands
 from contextlib import asynccontextmanager
 
-from config import DISCORD_TOKEN, FAHIM_CHANNEL_ID, validate_config
+from config import (\n    DISCORD_TOKEN, FAHIM_CHANNEL_ID, LAVALINK_PASSWORD,\n    LAVALINK_URI, validate_config,\n)
 from services.ai_service import AIService
 from services.context_service import build_history_question, build_reply_context
 from services.database import DatabaseService
@@ -139,6 +140,8 @@ class FahimBot(commands.Bot):
         self.memory_service = None
         self.ai_service = None
         self.search_service = None
+        self.music_ready = False
+        self.music_node = None
         self.conversation_locks = KeyedLockPool()
 
     async def setup_hook(self):
@@ -158,6 +161,34 @@ class FahimBot(commands.Bot):
 
         # Initialize AI service
         self.ai_service = AIService(self.search_service)
+
+        # Register the independent music subsystem before syncing its slash commands.
+        await self.load_extension("cogs.music")
+
+        # Music uses Lavalink/Wavelink only; it does not call Gemini.
+        try:
+            self.music_node = wavelink.Node(
+                identifier="fahim-music",
+                uri=LAVALINK_URI,
+                password=LAVALINK_PASSWORD,
+                retries=2,
+                client=self,
+                inactive_player_timeout=300,
+            )
+            await wavelink.Pool.connect(
+                nodes=[self.music_node],
+                client=self,
+            )
+            self.music_ready = True
+            logger.info("Lavalink music node connected.")
+        except Exception:
+            self.music_ready = False
+            self.music_node = None
+            logger.warning(
+                "Lavalink is unavailable; text chat will continue and music "
+                "commands will report that the music service is offline.",
+                exc_info=True,
+            )
 
         # Register Discord slash commands
         synced = await self.tree.sync()
@@ -181,7 +212,13 @@ class FahimBot(commands.Bot):
             except Exception:
                 logger.exception("Failed to close MongoDB connection.")
             finally:
-                await super().close()
+                try:
+                    if self.music_node:
+                        await wavelink.Pool.close()
+                except Exception:
+                    logger.exception("Failed to close Lavalink music node.")
+                finally:
+                    await super().close()
 
 
     async def resolve_reference_message(self, message: discord.Message):
