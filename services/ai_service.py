@@ -1046,7 +1046,7 @@ required before returning to normal.
         # cite a source from the mandatory live search.
         if self.is_current_price_question(question) and not sources:
             return (
-                "دورت على السعر الحالي، لكن النتائج المتاحة ما وفرتش مصدرًا "
+                "دورت على السعر الحالي، لكن النتائج المتاحة ما وفرتش بيانات كافية أو مصدرًا "
                 "واضحًا أقدر أؤكد منه رقمًا. مش هخمن سعر من عندي."
             )
 
