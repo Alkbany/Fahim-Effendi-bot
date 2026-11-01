@@ -1,0 +1,14 @@
+# Codespaces-only networking workaround.
+#
+# The Docker-in-Docker bridge in this Codespace currently has no outbound
+# connectivity. Host networking bypasses that broken bridge/NAT path.
+# Keep the normal docker-compose.yml unchanged for local and production use.
+services:
+  lavalink:
+    network_mode: host
+    ports: !reset []
+
+  fahim:
+    network_mode: host
+    environment:
+      LAVALINK_URI: http://127.0.0.1:2333
