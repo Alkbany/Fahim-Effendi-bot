@@ -5,6 +5,7 @@ on:
     branches:
       - main
       - feature/deterministic-relationship-gate
+      - chore/repository-cleanup
   pull_request:
     branches:
       - main
