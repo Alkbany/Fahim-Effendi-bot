@@ -16,6 +16,7 @@ from services.context_service import build_history_question, build_reply_context
 from services.database import DatabaseService
 from services.memory_service import MemoryService
 from services.search_service import SearchService
+from config import MAX_PLAYLIST_TRACKS
 
 
 # =========================
@@ -122,6 +123,110 @@ def split_message(text, limit=1900):
         chunks.append(text)
 
     return chunks
+
+
+
+async def handle_natural_music_request(bot, message, text):
+    """Handle clear, direct Egyptian-Arabic music requests without a slash command."""
+    if not bot.music_ready or message.guild is None:
+        return None
+
+    import re
+    normalized = re.sub(r"\\s+", " ", (text or "").strip())
+    normalized = re.sub(r"^يا\\s+فهيم\\s+[اأإ]?فندي[،,: ]*", "", normalized)
+    normalized = re.sub(r"^<@!?\\d+>[،,: ]*", "", normalized)
+
+    player = message.guild.voice_client
+    voice_state = getattr(message.author, "voice", None)
+    voice_channel = getattr(voice_state, "channel", None)
+
+    # Playback requests: "شغلي ..." / "شغلنا ..." / "شغّل ..."
+    play_match = re.match(
+        r"^(?:ممكن\\s+)?(?:شغل(?:ي|نا)?|شغّل(?:ي|نا)?|شغّل لنا|شغل لنا)\\s+(.+)$",
+        normalized,
+        flags=re.IGNORECASE,
+    )
+    if play_match:
+        query = play_match.group(1).strip(" .،!?؟")
+        if not query:
+            return None
+        if voice_channel is None:
+            return "ادخلوا قناة صوتية الأول يا جماعة، مش هشغّل الأغاني في الهوا."
+        if player is None:
+            try:
+                player = await voice_channel.connect(cls=wavelink.Player)
+            except Exception:
+                logger.exception("Natural music request could not connect to voice.")
+                return "مش عارف أدخل القناة الصوتية. راجعوا صلاحياتي."
+        elif not isinstance(player, wavelink.Player) or player.channel.id != voice_channel.id:
+            return "لازم أكون معاكم في نفس القناة الصوتية."
+        try:
+            if "open.spotify.com/" in query.lower():
+                results = await wavelink.Playable.search(query)
+            else:
+                results = await wavelink.Playable.search(query, source="ytsearch")
+            if not results:
+                return "ملقتش أغنية قابلة للتشغيل بالاسم ده."
+            if isinstance(results, wavelink.Playlist):
+                tracks = results.tracks[:MAX_PLAYLIST_TRACKS]
+            else:
+                tracks = [results[0]]
+            if not tracks:
+                return "القائمة دي مفيهاش حاجة تتشغل."
+            await player.queue.put_wait(tracks)
+            started = player.current is None
+            if started:
+                await player.play(player.queue.get())
+            if isinstance(results, wavelink.Playlist):
+                return f"حاضر، ضفت {len(tracks)} أغنية من قائمة {results.name or 'الأغاني'} للانتظار."
+            return f"حاضر، ضفت **{tracks[0].title}** للـQueue." + (" وبدأت التشغيل." if started else "")
+        except Exception:
+            logger.exception("Natural music playback failed.")
+            return "حصلت مشكلة وأنا بحمّل الأغنية. جرّبوا اسم تاني."
+
+    # Transport controls use explicit phrases to avoid hijacking ordinary chat.
+    control_patterns = [
+        (r"^(?:وقف|وقفي|وقفلي|وقف لنا) (?:المزيكا|الموسيقى|الأغنية|الأغاني)$", "pause"),
+        (r"^(?:كمل|كمّل|استأنف) (?:المزيكا|الموسيقى|الأغنية|الأغاني)$", "resume"),
+        (r"^(?:عدي|عدّي|تخطى|تخطّى) (?:الأغنية|التراك|الأغاني)$", "skip"),
+        (r"^(?:اقفل|اقفلوا|وقف) (?:المزيكا|الموسيقى) وامسح(?:وا)? الانتظار$", "stop"),
+        (r"^(?:اخرج|اطلع) من القناة الصوتية$", "leave"),
+    ]
+    action = next((name for pattern, name in control_patterns if re.match(pattern, normalized, re.I)), None)
+    if action:
+        if player is None or not isinstance(player, wavelink.Player):
+            return "مفيش تشغيل شغال حاليًا."
+        if voice_channel is None or player.channel.id != voice_channel.id:
+            return "لازم تكونوا معايا في نفس القناة الصوتية."
+        try:
+            if action == "pause":
+                if player.current is None or player.paused:
+                    return "الأغنية مش شغالة دلوقتي."
+                await player.pause(True)
+                return "وقفتها مؤقتًا."
+            if action == "resume":
+                if not player.paused:
+                    return "هي مش متوقفة مؤقتًا."
+                await player.pause(False)
+                return "رجّعنا التشغيل."
+            if action == "skip":
+                if player.current is None:
+                    return "مفيش أغنية أعدّيها."
+                await player.skip()
+                return "عدّيناها."
+            if action == "stop":
+                player.queue.clear()
+                if player.current is not None:
+                    await player.stop()
+                return "وقفت التشغيل ومسحت الانتظار."
+            if action == "leave":
+                player.queue.clear()
+                await player.disconnect()
+                return "خرجت من القناة الصوتية."
+        except Exception:
+            logger.exception("Natural music control failed.")
+            return "حصلت مشكلة وأنا بنفذ أمر الموسيقى."
+    return None
 
 
 # =========================
@@ -347,6 +452,12 @@ class FahimBot(commands.Bot):
             return
 
         try:
+            music_reply = await handle_natural_music_request(self, message, question)
+            if music_reply is not None:
+                await message.reply(music_reply, mention_author=False)
+                await self.process_commands(message)
+                return
+
             async with message.channel.typing():
                 guild_id = message.guild.id
                 user_id = message.author.id
@@ -368,6 +479,20 @@ class FahimBot(commands.Bot):
                             guild_id, user_id
                         ),
                     )
+
+
+                    if (
+                        relationship_memory
+                        and relationship_memory.get("status") == "awaiting_apology"
+                        and not self.ai_service.is_apology_attempt(question)
+                        and not self.ai_service.is_emergency_or_safety_request(question)
+                    ):
+                        await message.reply(
+                            "بعد اللي حصل بينا، مش هقدر أتعامل معاك كأن مفيش حاجة. لما تبقى مستعد تعتذر بوضوح عن اللي صدر منك، نبقى نتكلم.",
+                            mention_author=False,
+                        )
+                        await self.process_commands(message)
+                        return
 
                     if relationship_memory:
                         personal_memories = [
@@ -472,6 +597,18 @@ async def ask(
                     guild_id, user_id
                 ),
             )
+
+
+            if (
+                relationship_memory
+                and relationship_memory.get("status") == "awaiting_apology"
+                and not bot.ai_service.is_apology_attempt(question)
+                and not bot.ai_service.is_emergency_or_safety_request(question)
+            ):
+                await interaction.edit_original_response(
+                    content="بعد اللي حصل بينا، مش هقدر أتعامل معاك كأن مفيش حاجة. لما تبقى مستعد تعتذر بوضوح عن اللي صدر منك، نبقى نتكلم."
+                )
+                return
 
             if relationship_memory:
                 personal_memories = [
