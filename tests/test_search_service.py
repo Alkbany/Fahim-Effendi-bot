@@ -56,6 +56,25 @@ class SearchServiceTests(unittest.IsolatedAsyncioTestCase):
 
         self.assertEqual(results, [])
 
+    async def test_ddgs_receives_configured_network_timeout(self):
+        with patch("services.search_service.DDGS") as ddgs:
+            ddgs.return_value.text.return_value = []
+            service = SearchService(timeout=7)
+
+            service._search_sync("Python")
+
+        ddgs.assert_called_once_with(timeout=7)
+
+    async def test_query_is_trimmed_and_length_limited(self):
+        service = SearchService(max_query_chars=500)
+
+        with patch.object(
+            service, "_search_sync", return_value=[]
+        ) as search:
+            await service.search("  " + ("x" * 600) + "  ")
+
+        search.assert_called_once_with("x" * 500)
+
 
 if __name__ == "__main__":
     unittest.main()
