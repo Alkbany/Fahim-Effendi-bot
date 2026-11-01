@@ -13,7 +13,7 @@ class RelationshipGateTests(unittest.IsolatedAsyncioTestCase):
         ai.request_model = AsyncMock()
         return ai
 
-    async def test_pending_conflict_never_blocks_an_ordinary_request(self):
+    async def test_pending_conflict_requires_a_genuine_apology_before_ordinary_requests(self):
         ai = self.make_ai()
         ai.request_model.return_value = (
             type("Response", (), {
@@ -36,7 +36,10 @@ class RelationshipGateTests(unittest.IsolatedAsyncioTestCase):
         self.assertIn("بايثون", answer)
         ai.request_model.assert_awaited_once()
         instruction = ai.request_model.await_args.args[3]
-        self.assertIn("Always answer the member's current question", instruction)
+        self.assertIn("Do not answer ordinary requests", instruction)
+        self.assertIn("A phrase such as", instruction)
+        self.assertIn("without blaming Fahim or making excuses", instruction)
+        self.assertNotIn("Always answer the member's current question", instruction)
 
     async def test_pending_conflict_allows_explicit_apology_attempt(self):
         ai = self.make_ai()
