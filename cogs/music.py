@@ -32,6 +32,7 @@ class MusicCog(commands.Cog):
         self.bot = bot
         self._guild_locks = {}
         self._fallback_tracks = {}
+        self._fallback_queries = {}
 
     def _lock_for(self, guild_id):
         return self._guild_locks.setdefault(guild_id, asyncio.Lock())
@@ -134,6 +135,7 @@ class MusicCog(commands.Cog):
                     tracks = [search_tracks[0]]
                     alternatives = list(search_tracks[1:6])
                     self._fallback_tracks[tracks[0].identifier] = alternatives
+                    self._fallback_queries[tracks[0].identifier] = search_query
                     logger.info(
                         "AI music search returned %s tracks; stored %s alternatives | query=%s | primary_id=%s",
                         len(search_tracks),
@@ -285,6 +287,7 @@ class MusicCog(commands.Cog):
             tracks = [search_tracks[0]]
             alternatives = list(search_tracks[1:6])
             self._fallback_tracks[tracks[0].identifier] = alternatives
+            self._fallback_queries[tracks[0].identifier] = query.strip()
             logger.info(
                 "Slash play search returned %s tracks; stored %s alternatives | query=%s | primary_id=%s",
                 len(search_tracks),
@@ -477,6 +480,7 @@ class MusicCog(commands.Cog):
         track = payload.track
         if track is not None and payload.reason in {"finished", "stopped"}:
             self._fallback_tracks.pop(track.identifier, None)
+            self._fallback_queries.pop(track.identifier, None)
 
         if player is None or payload.reason not in {"finished", "stopped"}:
             return
@@ -499,6 +503,7 @@ class MusicCog(commands.Cog):
             str(payload.exception),
         )
 
+        original_query = self._fallback_queries.pop(failed_track.identifier, None)
         alternatives = self._fallback_tracks.pop(failed_track.identifier, [])
         logger.info(
             "Alternative search results available: %s",
@@ -508,6 +513,8 @@ class MusicCog(commands.Cog):
             next_track = alternatives.pop(0)
             if alternatives:
                 self._fallback_tracks[next_track.identifier] = alternatives
+            if original_query:
+                self._fallback_queries[next_track.identifier] = original_query
             logger.info(
                 "Retrying playback with alternative result: %s | id=%s",
                 next_track.title,
@@ -519,17 +526,11 @@ class MusicCog(commands.Cog):
             except Exception:
                 logger.exception("Could not start an alternative search result.")
 
-        # YouTube search results can be listed successfully but fail during
-        # playback (for example, when YouTube requires sign-in). Once those
-        # candidates are exhausted, try the same title on SoundCloud.
+        # Reuse the member's original search phrase for SoundCloud. Track titles
+        # and uploader names can be noisy or unrelated to the requested artist.
         failed_source = (getattr(failed_track, "source", "") or "").lower()
         if failed_source != "soundcloud":
-            soundcloud_query = " ".join(
-                part for part in (
-                    getattr(failed_track, "title", ""),
-                    getattr(failed_track, "author", ""),
-                ) if part
-            ).strip()
+            soundcloud_query = (original_query or getattr(failed_track, "title", "")).strip()
             if soundcloud_query:
                 try:
                     soundcloud_results = await wavelink.Playable.search(
@@ -546,6 +547,8 @@ class MusicCog(commands.Cog):
                         remaining = list(soundcloud_tracks[1:6])
                         if remaining:
                             self._fallback_tracks[next_track.identifier] = remaining
+                        if original_query:
+                            self._fallback_queries[next_track.identifier] = original_query
                         logger.info(
                             "Retrying failed YouTube track with SoundCloud result: %s | id=%s | alternatives=%s",
                             next_track.title,
@@ -555,7 +558,7 @@ class MusicCog(commands.Cog):
                         await player.play(next_track)
                         return
                     logger.warning(
-                        "SoundCloud returned no results for failed track: %s",
+                        "SoundCloud returned no results for original search query: %s",
                         soundcloud_query,
                     )
                 except Exception:
