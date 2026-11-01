@@ -530,7 +530,10 @@ class AISearchTests(unittest.IsolatedAsyncioTestCase):
         response = make_text_response("سعر الذهب حسب المصدر [S1].")
         ai.request_model = AsyncMock(
             side_effect=lambda *args, **kwargs: (
-                order.append("model") or (response, [])
+                order.append("model") or (
+                    response,
+                    ["- Gold Prices: https://example.com/gold"],
+                )
             )
         )
 
@@ -547,6 +550,27 @@ class AISearchTests(unittest.IsolatedAsyncioTestCase):
         )
         self.assertIn("سعر الذهب عيار 21", ai.request_model.await_args.args[3])
         self.assertIn("[S1]", answer)
+
+
+    async def test_current_price_without_a_cited_source_is_not_returned(self):
+        search = Mock()
+        search.search = AsyncMock(return_value=[{
+            "title": "Unclear result",
+            "url": "https://example.com/unclear",
+            "snippet": "No current price is provided.",
+        }])
+
+        ai = AIService.__new__(AIService)
+        ai.search_service = search
+        ai.personality = "شخصية فهيم"
+        ai.history_limit = 10
+        response = make_text_response("عيار 21 سعره 99999 جنيه.")
+        ai.request_model = AsyncMock(return_value=(response, []))
+
+        answer = await ai.generate_response("سعر الذهب اليوم في مصر")
+
+        self.assertIn("مش هخمن سعر", answer)
+        self.assertNotIn("99999", answer)
 
     async def test_discloses_failed_mandatory_price_search(self):
         search = Mock()
