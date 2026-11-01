@@ -115,6 +115,13 @@ class MusicCog(commands.Cog):
                     results = await wavelink.Playable.search(search_query, source="ytsearch")
                 if not results:
                     return {"success": False, "message": "ملقتش نتيجة قابلة للتشغيل للطلب ده."}
+                logger.info(
+                    "Music search result | flow=AI | type=%s | playlist_name=%r | count=%s | query=%s",
+                    type(results).__name__,
+                    getattr(results, "name", None),
+                    len(results.tracks) if isinstance(results, wavelink.Playlist) else len(results),
+                    search_query,
+                )
                 is_search_playlist = (
                     isinstance(results, wavelink.Playlist)
                     and (results.name or "").strip().lower() == "search results"
@@ -258,6 +265,13 @@ class MusicCog(commands.Cog):
             )
             return
 
+        logger.info(
+            "Music search result | flow=slash | type=%s | playlist_name=%r | count=%s | query=%s",
+            type(results).__name__,
+            getattr(results, "name", None),
+            len(results.tracks) if isinstance(results, wavelink.Playlist) else len(results),
+            query.strip(),
+        )
         is_search_playlist = (
             isinstance(results, wavelink.Playlist)
             and (results.name or "").strip().lower() == "search results"
