@@ -258,6 +258,12 @@ class FahimBot(commands.Bot):
         if not question and message.reference:
             question = content.strip()
 
+        # Persist only what the member actually typed. Reply context is temporary
+        # prompt context and should not be duplicated in the conversation transcript.
+        history_question = question
+        if not history_question and message.reference:
+            history_question = "كمّل كلامك عن الرسالة دي."
+
         # A reply to Fahim must carry the exact message being replied to.
         # Recent chat history alone is insufficient when the target is older.
         if (
@@ -326,7 +332,7 @@ class FahimBot(commands.Bot):
                     await self.memory_service.save_turn(
                         guild_id,
                         user_id,
-                        question,
+                        history_question,
                         answer,
                     )
 
