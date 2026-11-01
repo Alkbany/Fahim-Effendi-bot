@@ -1,4 +1,17 @@
 services:
+  lavalink:
+    image: ghcr.io/lavalink-devs/lavalink:4
+    container_name: fahim-lavalink
+    restart: unless-stopped
+    environment:
+      LAVALINK_PASSWORD: ${LAVALINK_PASSWORD:-fahim-local-node-password}
+      SPOTIFY_CLIENT_ID: ${SPOTIFY_CLIENT_ID:-}
+      SPOTIFY_CLIENT_SECRET: ${SPOTIFY_CLIENT_SECRET:-}
+    volumes:
+      - ./lavalink/application.yml:/opt/Lavalink/application.yml:ro
+    ports:
+      - "127.0.0.1:2333:2333"
+
   fahim:
     build:
       context: .
@@ -7,4 +20,9 @@ services:
     init: true
     env_file:
       - .env
+    environment:
+      LAVALINK_URI: http://lavalink:2333
+      LAVALINK_PASSWORD: ${LAVALINK_PASSWORD:-fahim-local-node-password}
+    depends_on:
+      - lavalink
     stop_grace_period: 30s
