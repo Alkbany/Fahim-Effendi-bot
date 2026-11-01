@@ -93,6 +93,22 @@ class MemoryService:
 
         return [document for _, document in ranked[:limit]]
 
+    @staticmethod
+    async def _sanitize_legacy_fields(collection, selector, document, fields):
+        updates = {}
+        for field in fields:
+            value = document.get(field)
+            if isinstance(value, str):
+                sanitized = redact_credentials(value)
+                if sanitized != value:
+                    updates[field] = sanitized
+
+        if updates:
+            await collection.update_one(selector, {"$set": updates})
+            return {**document, **updates}
+
+        return document
+
     async def get_history(self, guild_id, user_id):
         key = {
             "guild_id": str(guild_id),
@@ -265,8 +281,27 @@ class MemoryService:
 
         documents = await cursor.to_list(length=30)
 
+        sanitized_documents = []
+        for document in documents:
+            topic = document.get("topic", "")
+            selector = {
+                "guild_id": str(guild_id),
+                "topic": topic,
+            }
+            if contains_credential(topic):
+                await self.guild_memories.delete_one(selector)
+                continue
+
+            document = await self._sanitize_legacy_fields(
+                self.guild_memories,
+                selector,
+                document,
+                ("summary",),
+            )
+            sanitized_documents.append(document)
+
         return self._rank_documents(
-            documents,
+            sanitized_documents,
             terms,
             ("topic", "summary", "category"),
             limit,
@@ -476,6 +511,44 @@ class MemoryService:
         if not document:
             return None
 
+        document = await self._sanitize_legacy_fields(
+            self.user_memories,
+            {
+                "guild_id": str(guild_id),
+                "user_id": str(user_id),
+                "key": "relationship_state",
+            },
+            document,
+            ("summary",),
+        )
+
+        events = document.get("events", [])
+        if isinstance(events, list):
+            sanitized_events = []
+            events_changed = False
+            for event in events:
+                if not isinstance(event, dict):
+                    sanitized_events.append(event)
+                    continue
+                details = event.get("details")
+                if isinstance(details, str):
+                    sanitized_details = redact_credentials(details)
+                    if sanitized_details != details:
+                        event = {**event, "details": sanitized_details}
+                        events_changed = True
+                sanitized_events.append(event)
+
+            if events_changed:
+                await self.user_memories.update_one(
+                    {
+                        "guild_id": str(guild_id),
+                        "user_id": str(user_id),
+                        "key": "relationship_state",
+                    },
+                    {"$set": {"events": sanitized_events}},
+                )
+                document = {**document, "events": sanitized_events}
+
         status, improvement_count = self._derive_relationship_state(document)
         document["status"] = status
         document["improvement_count"] = improvement_count
@@ -512,8 +585,28 @@ class MemoryService:
 
         documents = await cursor.to_list(length=30)
 
+        sanitized_documents = []
+        for document in documents:
+            memory_key = document.get("key", "")
+            selector = {
+                "guild_id": str(guild_id),
+                "user_id": str(user_id),
+                "key": memory_key,
+            }
+            if contains_credential(memory_key):
+                await self.user_memories.delete_one(selector)
+                continue
+
+            document = await self._sanitize_legacy_fields(
+                self.user_memories,
+                selector,
+                document,
+                ("value",),
+            )
+            sanitized_documents.append(document)
+
         return self._rank_documents(
-            documents,
+            sanitized_documents,
             terms,
             ("key", "value"),
             limit,
