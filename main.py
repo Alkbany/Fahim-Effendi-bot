@@ -258,8 +258,6 @@ class FahimBot(commands.Bot):
         if not question and message.reference:
             question = content.strip()
 
-        # Persist only what the member actually typed. Reply context is temporary
-        # prompt context and should not be duplicated in the conversation transcript.
         # Persist only member-authored text; referenced bot text is prompt-only.
         history_question = build_history_question(
             question,
