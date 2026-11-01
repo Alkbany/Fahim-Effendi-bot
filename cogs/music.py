@@ -31,6 +31,7 @@ class MusicCog(commands.Cog):
     def __init__(self, bot):
         self.bot = bot
         self._guild_locks = {}
+        self._fallback_tracks = {}
 
     def _lock_for(self, guild_id):
         return self._guild_locks.setdefault(guild_id, asyncio.Lock())
@@ -119,6 +120,7 @@ class MusicCog(commands.Cog):
                     playlist_name = results.name or "قائمة الأغاني"
                 else:
                     tracks = [results[0]]
+                    self._fallback_tracks[tracks[0].identifier] = list(results[1:6])
                     playlist_name = None
                 if not tracks:
                     return {"success": False, "message": "القائمة دي مفيهاش أغاني قابلة للتشغيل."}
@@ -249,6 +251,7 @@ class MusicCog(commands.Cog):
             truncated = len(results.tracks) > len(tracks)
         else:
             tracks = [results[0]]
+            self._fallback_tracks[tracks[0].identifier] = list(results[1:6])
             playlist_name = None
             truncated = False
 
@@ -429,6 +432,12 @@ class MusicCog(commands.Cog):
         await interaction.response.send_message(f"وضع التكرار: **{labels[mode]}**.")
 
     @commands.Cog.listener()
+    async def on_wavelink_track_start(self, payload: wavelink.TrackStartEventPayload):
+        track = payload.track
+        if track is not None:
+            self._fallback_tracks.pop(track.identifier, None)
+
+    @commands.Cog.listener()
     async def on_wavelink_track_end(self, payload: wavelink.TrackEndEventPayload):
         player = payload.player
         if player is None or payload.reason not in {"finished", "stopped"}:
@@ -448,7 +457,22 @@ class MusicCog(commands.Cog):
             player.guild.id,
             str(payload.exception),
         )
-        if player.current is not None:
+        current = player.current
+        if current is not None:
+            alternatives = self._fallback_tracks.pop(current.identifier, [])
+            if alternatives:
+                next_track = alternatives.pop(0)
+                if alternatives:
+                    self._fallback_tracks[next_track.identifier] = alternatives
+                logger.info(
+                    "Retrying playback with an alternative search result: %s",
+                    next_track.title,
+                )
+                try:
+                    await player.play(next_track)
+                    return
+                except Exception:
+                    logger.exception("Could not start an alternative search result.")
             await player.skip()
 
     @commands.Cog.listener()
