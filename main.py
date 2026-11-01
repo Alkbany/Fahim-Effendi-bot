@@ -267,6 +267,7 @@ class FahimBot(commands.Bot):
     def __init__(self):
         intents = discord.Intents.default()
         intents.message_content = True
+        intents.voice_states = True
 
         super().__init__(
             command_prefix="!",
@@ -282,6 +283,20 @@ class FahimBot(commands.Bot):
         self.music_node = None
         self.music_connect_task = None
         self.conversation_locks = KeyedLockPool()
+
+    async def on_voice_state_update(self, member, before, after):
+        """Log the bot account voice-state transitions without exposing voice credentials."""
+        if self.user is None or member.id != self.user.id:
+            return
+
+        before_channel = before.channel.id if before.channel else None
+        after_channel = after.channel.id if after.channel else None
+        logger.info(
+            "Bot voice state update | guild=%s | before_channel=%s | after_channel=%s",
+            member.guild.id,
+            before_channel,
+            after_channel,
+        )
 
     async def setup_hook(self):
         validate_config()
