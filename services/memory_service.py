@@ -301,9 +301,9 @@ class MemoryService:
         cursor = self.guild_memories.find(
             {"guild_id": str(guild_id)},
             {"_id": 0},
-        ).limit(100)
+        ).limit(30)
 
-        documents = await cursor.to_list(length=100)
+        documents = await cursor.to_list(length=30)
 
         sanitized_documents = []
         for document in documents:
@@ -595,9 +595,9 @@ class MemoryService:
                 "user_id": str(user_id),
             },
             {"_id": 0},
-        ).limit(100)
+        ).limit(30)
 
-        documents = await cursor.to_list(length=100)
+        documents = await cursor.to_list(length=30)
 
         sanitized_documents = []
         for document in documents:
