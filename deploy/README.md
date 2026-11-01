@@ -1,38 +1,43 @@
-# Free VM deployment
+# Linux VM deployment (without Docker)
 
-Fahim is a persistent Discord Gateway bot. Deploy it as a long-running process or container, not as a static site, serverless function, scheduled job, or a web service that sleeps when idle.
+Fahim is a persistent Discord Gateway bot. Run it as a long-lived systemd service on a Linux VM. No Docker or separate audio server is needed.
 
-This guide is provider-neutral. It is written for a Linux VM that you are authorized to administer. Oracle Cloud Always Free is one possible source of a VM, but free capacity and continued availability are not guaranteed.
+## Requirements
+- Python 3.12+
+- FFmpeg installed and available on PATH
+- Git
+- A Discord bot token, Gemini API key, and MongoDB connection string
+- A Linux VM with outbound internet access
 
-## Before you start
+No inbound application port is required. Keep the VM firewall closed except for the secure administration method you use.
 
-You need:
+## Install
 
-- A Linux VM with outbound internet access.
-- Docker Engine and the Docker Compose plugin installed.
-- A Discord bot token, Gemini API key, and MongoDB connection string.
-- Access to the GitHub repository.
-
-No inbound application port is required. Fahim initiates outbound connections to Discord, Gemini, and MongoDB. Keep the VM firewall closed to inbound traffic except for the administration method you intentionally use (for example, SSH from a trusted network).
-
-## Deploy
-
-1. Connect to your VM using its supported secure administration method.
-2. Install Docker Engine and the Docker Compose plugin using the official instructions for your Linux distribution: https://docs.docker.com/engine/install/
-3. Enable Docker at boot:
+1. Connect to the VM securely.
+2. Install system packages (Ubuntu/Debian example):
 
    ```bash
-   sudo systemctl enable --now docker
+   sudo apt update
+   sudo apt install -y git python3 python3-venv python3-pip ffmpeg
    ```
 
-4. Clone the repository and enter its directory:
+3. Clone the repository:
 
    ```bash
    git clone <your-repository-url>
    cd Fahim-Effendi-bot
    ```
 
-5. Create the environment file locally on the VM. Do not commit it:
+4. Create a virtual environment and install dependencies:
+
+   ```bash
+   python3 -m venv .venv
+   . .venv/bin/activate
+   python -m pip install --upgrade pip
+   python -m pip install -r requirements.txt
+   ```
+
+5. Create the environment file and set the required secrets:
 
    ```bash
    cp .env.example .env
@@ -40,68 +45,63 @@ No inbound application port is required. Fahim initiates outbound connections to
    nano .env
    ```
 
-   Fill in the required values: `DISCORD_TOKEN`, `GEMINI_API_KEY`, and `MONGO_URI`. Keep the file private and never paste its contents into chats, issues, screenshots, or logs.
+   Required: `DISCORD_TOKEN`, `GEMINI_API_KEY`, and `MONGO_URI`. Never commit or share this file.
 
-6. Build and start Fahim:
+## Run with systemd
 
-   ```bash
-   sudo docker compose up -d --build
-   ```
+Create a dedicated service account and ensure it owns the project directory. Then create `/etc/systemd/system/fahim.service` (replace the path and account with the actual deployment values):
 
-7. Check startup logs:
+```ini
+[Unit]
+Description=Fahim Effendi Discord Bot
+After=network-online.target
+Wants=network-online.target
 
-   ```bash
-   sudo docker compose logs --tail=100 fahim
-   ```
+[Service]
+Type=simple
+User=fahim
+WorkingDirectory=/opt/Fahim-Effendi-bot
+ExecStart=/opt/Fahim-Effendi-bot/.venv/bin/python /opt/Fahim-Effendi-bot/main.py
+Restart=on-failure
+RestartSec=5
 
-   You should see successful MongoDB initialization and the Discord bot's ready/initialization log. If startup fails, inspect the error without sharing secret values.
+[Install]
+WantedBy=multi-user.target
+```
 
-## Routine operations
+Enable and start:
 
-Update to the latest main branch:
+```bash
+sudo systemctl daemon-reload
+sudo systemctl enable --now fahim
+sudo systemctl status fahim
+```
+
+View logs:
+
+```bash
+sudo journalctl -u fahim -f
+```
+
+## Update
+
+From the project directory:
 
 ```bash
 git pull --ff-only
-sudo docker compose up -d --build
+. .venv/bin/activate
+python -m pip install -r requirements.txt
+sudo systemctl restart fahim
 ```
 
-Follow logs:
+## Music notes
 
-```bash
-sudo docker compose logs -f fahim
-```
+Music playback runs in the bot process using discord.py VoiceClient, FFmpeg, and yt-dlp. The VM must allow outbound connections to Discord and the media source. Spotify URL resolution is not currently supported.
 
-Stop Fahim:
+## Security and availability
 
-```bash
-sudo docker compose down
-```
-
-The Compose service uses `restart: unless-stopped`, so Docker restarts the container after a process or VM restart, provided Docker itself is enabled at boot.
-
-## Network and data
-
-- The bot does not need a public HTTP endpoint or an inbound application port.
-- Allow outbound HTTPS (TCP 443) to Discord and Gemini.
-- Allow outbound access to the MongoDB deployment and port required by its connection string. For MongoDB Atlas, configure its network access rules for the VM's outbound public IP where possible; do not open the database to the entire internet.
-- Conversation and memory data are stored in MongoDB, not in the container filesystem. Keep a separate database backup plan.
-- Never put credentials in the Dockerfile, Compose file, source code, or GitHub Actions logs.
-
-## Free-tier limitations
-
-Free compute is not the same as a guaranteed always-on service.
-
-- Always Free VM availability depends on the provider, home region, and available capacity.
-- Oracle states that idle Always Free compute instances may be reclaimed when their CPU, network, and (for A1) memory utilization remain below the documented thresholds over a seven-day period. A small bot with little traffic may be at risk. Read the current policy before relying on it: https://docs.oracle.com/en-us/iaas/Content/FreeTier/freetier_topic-Always_Free_Resources.htm
-- Free web-service plans that sleep on inactivity are unsuitable for a bot that needs a continuous Discord Gateway connection.
-- A provider may restart, suspend, or discontinue free resources. Do not treat this as production-grade uptime.
-- Do not enable a paid plan, add a payment method, or exceed free quotas unless the account owner explicitly approves it.
-
-## Security checklist
-
-- Use a private repository.
-- Keep `.env` out of Git; the repository's `.gitignore` and `.dockerignore` already exclude it.
-- Use a dedicated VM account and restrict SSH access.
-- Do not expose MongoDB publicly; allow only the deployment's required network source where supported.
-- Rotate any credential that may have been exposed.
-- Review provider billing and resource limits regularly.
+- Do not expose an inbound application port; the bot uses outbound connections.
+- Restrict MongoDB network access to the VM's outbound IP where possible.
+- Keep `.env` private and rotate exposed credentials.
+- Free VM capacity and uptime are not guaranteed. Review provider policies and billing limits before relying on a free tier.
+- Back up MongoDB independently; bot state is stored there, not in the VM process.
