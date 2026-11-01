@@ -184,7 +184,7 @@ class FahimBot(commands.Bot):
         )
 
     async def connect_music_node(self):
-        for attempt in range(1, 6):
+        for attempt in range(1, 21):
             node = wavelink.Node(
                 identifier="fahim-music",
                 uri=LAVALINK_URI,
@@ -202,7 +202,7 @@ class FahimBot(commands.Bot):
             except Exception:
                 self.music_ready = False
                 logger.warning(
-                    "Lavalink connection attempt %s/5 failed.",
+                    "Lavalink connection attempt %s/20 failed.",
                     attempt,
                     exc_info=True,
                 )
@@ -210,7 +210,7 @@ class FahimBot(commands.Bot):
                     await wavelink.Pool.close()
                 except Exception:
                     pass
-                if attempt < 5:
+                if attempt < 20:
                     await asyncio.sleep(3)
 
         logger.warning(
