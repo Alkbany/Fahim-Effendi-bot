@@ -239,8 +239,7 @@ class FahimBot(commands.Bot):
                             self.music_connect_task,
                             return_exceptions=True,
                         )
-                    if self.music_node:
-                        await wavelink.Pool.close()
+                    await wavelink.Pool.close()
                 except Exception:
                     logger.exception("Failed to close Lavalink music node.")
                 finally:
