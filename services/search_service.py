@@ -1,16 +1,21 @@
 import asyncio
 import logging
+
 from ddgs import DDGS
 
 logger = logging.getLogger("fahim.search")
 
 
 class SearchService:
-    def __init__(self, max_results=5):
+    def __init__(self, max_results=5, timeout=10, max_query_chars=500):
         self.max_results = max_results
+        self.timeout = timeout
+        self.max_query_chars = max_query_chars
 
     def _search_sync(self, query):
-        return DDGS().text(
+        # DDGS applies this timeout to its outbound requests, so a stalled
+        # search provider cannot hold a worker thread indefinitely.
+        return DDGS(timeout=self.timeout).text(
             query,
             max_results=self.max_results,
             safesearch="moderate",
@@ -20,10 +25,12 @@ class SearchService:
         if not isinstance(query, str) or not query.strip():
             return []
 
+        query = query.strip()[:self.max_query_chars]
+
         try:
             results = await asyncio.to_thread(
                 self._search_sync,
-                query.strip(),
+                query,
             )
 
             clean_results = []
