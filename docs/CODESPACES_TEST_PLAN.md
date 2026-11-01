@@ -4,8 +4,8 @@ This is the hands-on verification stage before any 24/7 hosting decision. Automa
 
 ## 1. Open the development environment
 
-1. Open the repository on GitHub.
-2. Select **Code → Codespaces → Create codespace on main** (or open the existing Codespace and pull the latest changes).
+1. Open the existing Codespace for this repository and pull the latest main branch.
+2. The music feature adds Docker-in-Docker to the development container. Rebuild the existing container once so the feature is installed; do not create a second Codespace.
 3. Wait for the post-create setup to install the pinned Python dependencies.
 4. In the Codespaces terminal, verify the interpreter and dependencies:
 
@@ -22,7 +22,7 @@ Fahim needs these environment variables:
 - `GEMINI_API_KEY`
 - `MONGO_URI`
 
-Set them as Codespaces secrets or place them in a local `.env` file inside the Codespace. The repository ignores `.env`; never commit it, paste it into a chat, or include it in screenshots or logs.
+The existing Codespaces secrets remain in place after rebuilding the container; do not re-enter or print their values. If a local `.env` file is used instead, keep it ignored and never commit it, paste it into a chat, or include it in screenshots or logs. Spotify client credentials are optional and are only needed to resolve Spotify links for music playback.
 
 Do not add secrets to `devcontainer.json`, source files, or GitHub Actions. If a credential is exposed, rotate it.
 
@@ -75,7 +75,28 @@ Use a private test server and a test channel. Avoid testing with sensitive perso
 - [ ] Send messages from two different members; verify one slow response does not block the other member.
 - [ ] Check logs for exceptions and ensure no API keys, bot tokens, or MongoDB credentials appear.
 
-## 6. Failure and recovery checks
+## 6. Music end-to-end checklist
+
+Start the independent Lavalink node from the existing Codespace:
+
+```bash
+docker compose up -d lavalink
+docker compose logs -f lavalink
+```
+
+Then run Fahim with `python main.py` and confirm the Lavalink node becomes ready.
+
+- [ ] Join a voice channel and run `/play` with a YouTube URL.
+- [ ] Run `/play` with a search phrase; verify the track is queued and starts.
+- [ ] Test `/pause`, `/resume`, and `/skip`.
+- [ ] Test `/queue`, `/nowplaying`, and `/volume`.
+- [ ] Test `/shuffle`, `/loop`, `/stop`, and `/leave`.
+- [ ] If Spotify credentials are configured, test one Spotify track URL and one playlist URL.
+- [ ] Stop Lavalink and verify text chat still works while music commands report the node as offline.
+
+Music playback is independent of Gemini and should not generate Gemini API requests.
+
+## 7. Failure and recovery checks
 
 Perform these only in the test server:
 
@@ -84,7 +105,7 @@ Perform these only in the test server:
 - [ ] Test Gemini failure handling with a safe invalid test key or controlled unavailable-model condition; verify the fallback/error path behaves as expected.
 - [ ] Verify a restart does not create duplicate bot instances or duplicate replies.
 
-## 7. Completion gate
+## 8. Completion gate
 
 Do not call the bot production-ready until:
 - all unit tests pass in Codespaces;
