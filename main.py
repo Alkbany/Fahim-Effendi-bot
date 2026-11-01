@@ -167,19 +167,48 @@ async def handle_natural_music_request(bot, message, text):
                 results = await wavelink.Playable.search(query, source="ytsearch")
             if not results:
                 return "ملقتش أغنية قابلة للتشغيل بالاسم ده."
-            if isinstance(results, wavelink.Playlist):
+
+            logger.info(
+                "Music search result | flow=natural | type=%s | playlist_name=%r | count=%s | query=%s",
+                type(results).__name__,
+                getattr(results, "name", None),
+                len(results.tracks) if isinstance(results, wavelink.Playlist) else len(results),
+                query,
+            )
+
+            is_search_playlist = (
+                isinstance(results, wavelink.Playlist)
+                and (results.name or "").strip().lower().startswith("search results")
+            )
+            playlist_name = None
+            if isinstance(results, wavelink.Playlist) and not is_search_playlist:
                 tracks = results.tracks[:MAX_PLAYLIST_TRACKS]
+                playlist_name = results.name or "الأغاني"
             else:
-                tracks = [results[0]]
+                search_tracks = results.tracks if isinstance(results, wavelink.Playlist) else results
+                if not search_tracks:
+                    return "القائمة دي مفيهاش حاجة تتشغل."
+                tracks = [search_tracks[0]]
+                music_cog = bot.get_cog("MusicCog")
+                if music_cog is not None:
+                    alternatives = list(search_tracks[1:6])
+                    music_cog._fallback_tracks[tracks[0].identifier] = alternatives
+                    logger.info(
+                        "Natural music search stored %s alternatives | query=%s | primary_id=%s",
+                        len(alternatives),
+                        query,
+                        tracks[0].identifier,
+                    )
+
             if not tracks:
                 return "القائمة دي مفيهاش حاجة تتشغل."
             await player.queue.put_wait(tracks)
             started = player.current is None
             if started:
                 await player.play(player.queue.get())
-            if isinstance(results, wavelink.Playlist):
-                return f"حاضر، ضفت {len(tracks)} أغنية من قائمة {results.name or 'الأغاني'} للانتظار."
-            return f"حاضر، ضفت **{tracks[0].title}** للـQueue." + (" وبدأت التشغيل." if started else "")
+            if playlist_name:
+                return f"حاضر، ضفت {len(tracks)} أغنية من قائمة {playlist_name} للانتظار."
+            return f"حاضر، ضفت **{tracks[0].title}** للـQueue." + (" وبدأت محاولة التشغيل." if started else "")
         except Exception:
             logger.exception("Natural music playback failed.")
             return "حصلت مشكلة وأنا بحمّل الأغنية. جرّبوا اسم تاني."
