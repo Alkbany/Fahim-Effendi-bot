@@ -454,11 +454,13 @@ class MusicCog(commands.Cog):
     @commands.Cog.listener()
     async def on_wavelink_node_ready(self, payload: wavelink.NodeReadyEventPayload):
         self.bot.music_ready = True
+        self.bot.music_ready_event.set()
         logger.info("Lavalink node %s is ready.", payload.node.identifier)
 
     @commands.Cog.listener()
     async def on_wavelink_node_disconnected(self, payload: wavelink.NodeDisconnectedEventPayload):
         self.bot.music_ready = False
+        self.bot.music_ready_event.clear()
         logger.warning("Lavalink node %s disconnected.", payload.node.identifier)
 
     @commands.Cog.listener()
