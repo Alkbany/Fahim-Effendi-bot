@@ -57,7 +57,9 @@ class MemoryServiceTests(unittest.IsolatedAsyncioTestCase):
             user_conversations=SimpleNamespace(
                 delete_one=AsyncMock(
                     return_value=SimpleNamespace(deleted_count=1)
-                )
+                ),
+                find_one=AsyncMock(return_value=None),
+                update_one=AsyncMock(),
             ),
             guild_memories=SimpleNamespace(),
             user_memories=SimpleNamespace(
@@ -66,6 +68,37 @@ class MemoryServiceTests(unittest.IsolatedAsyncioTestCase):
             ),
         )
         self.memory = MemoryService(self.database)
+
+    async def test_get_history_redacts_and_persists_legacy_credentials(self):
+        original_history = [
+            {"role": "user", "text": "My API_KEY=AIza" + "A" * 30},
+            {"role": "model", "text": "I will keep that private."},
+        ]
+        self.database.user_conversations.find_one = AsyncMock(
+            return_value={"history": original_history}
+        )
+
+        history = await self.memory.get_history(100, 200)
+
+        self.assertIn("[REDACTED]", history[0]["text"])
+        self.assertNotIn("AIza", history[0]["text"])
+        self.database.user_conversations.update_one.assert_awaited_once_with(
+            {"guild_id": "100", "user_id": "200"},
+            {"$set": {"history": history}},
+        )
+
+    async def test_get_history_does_not_write_when_no_credentials_exist(self):
+        self.database.user_conversations.find_one = AsyncMock(
+            return_value={"history": [
+                {"role": "user", "text": "Hello"},
+                {"role": "model", "text": "Hi"},
+            ]}
+        )
+
+        history = await self.memory.get_history(100, 200)
+
+        self.assertEqual(history[0]["text"], "Hello")
+        self.database.user_conversations.update_one.assert_not_awaited()
 
     async def test_reset_deletes_only_current_user_conversation(self):
         result = await self.memory.reset_conversation(100, 200)
