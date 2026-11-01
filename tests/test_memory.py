@@ -61,10 +61,14 @@ class MemoryServiceTests(unittest.IsolatedAsyncioTestCase):
                 find_one=AsyncMock(return_value=None),
                 update_one=AsyncMock(),
             ),
-            guild_memories=SimpleNamespace(),
+            guild_memories=SimpleNamespace(
+                delete_one=AsyncMock(),
+                update_one=AsyncMock(),
+            ),
             user_memories=SimpleNamespace(
                 find_one=AsyncMock(return_value=None),
                 update_one=AsyncMock(),
+                delete_one=AsyncMock(),
             ),
         )
         self.memory = MemoryService(self.database)
@@ -99,6 +103,73 @@ class MemoryServiceTests(unittest.IsolatedAsyncioTestCase):
 
         self.assertEqual(history[0]["text"], "Hello")
         self.database.user_conversations.update_one.assert_not_awaited()
+
+    async def test_legacy_personal_memory_credentials_are_redacted(self):
+        cursor = FakeCursor([{
+            "guild_id": "100",
+            "user_id": "200",
+            "key": "api_credential",
+            "value": "API_KEY=AIza" + "B" * 30,
+        }])
+        self.database.user_memories.find = Mock(return_value=cursor)
+
+        result = await self.memory.get_relevant_user_memories(
+            100, 200, "credential"
+        )
+
+        self.assertEqual(len(result), 1)
+        self.assertIn("[REDACTED]", result[0]["value"])
+        self.database.user_memories.update_one.assert_awaited_once()
+
+    async def test_legacy_personal_memory_with_secret_in_key_is_deleted(self):
+        cursor = FakeCursor([{
+            "key": "API_KEY=AIza" + "C" * 30,
+            "value": "old secret",
+        }])
+        self.database.user_memories.find = Mock(return_value=cursor)
+
+        result = await self.memory.get_relevant_user_memories(
+            100, 200, "credential"
+        )
+
+        self.assertEqual(result, [])
+        self.database.user_memories.delete_one.assert_awaited_once_with({
+            "guild_id": "100",
+            "user_id": "200",
+            "key": "API_KEY=AIza" + "C" * 30,
+        })
+
+    async def test_legacy_guild_memory_credentials_are_redacted(self):
+        cursor = FakeCursor([{
+            "guild_id": "100",
+            "topic": "project",
+            "summary": "password=old-secret",
+            "category": "project",
+        }])
+        self.database.guild_memories.find = Mock(return_value=cursor)
+
+        result = await self.memory.get_relevant_guild_memories(
+            100, "project"
+        )
+
+        self.assertEqual(len(result), 1)
+        self.assertIn("[REDACTED]", result[0]["summary"])
+        self.database.guild_memories.update_one.assert_awaited_once()
+
+    async def test_legacy_relationship_credentials_are_redacted(self):
+        self.database.user_memories.find_one = AsyncMock(return_value={
+            "key": "relationship_state",
+            "summary": "password=old-secret",
+            "events": [{"type": "conflict", "details": "Bearer old-token"}],
+        })
+
+        result = await self.memory.get_relationship_memory(100, 200)
+
+        self.assertIn("[REDACTED]", result["summary"])
+        self.assertIn("[REDACTED]", result["events"][0]["details"])
+        self.assertEqual(
+            self.database.user_memories.update_one.await_count, 2
+        )
 
     async def test_reset_deletes_only_current_user_conversation(self):
         result = await self.memory.reset_conversation(100, 200)
