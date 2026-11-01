@@ -7,7 +7,10 @@ import wavelink
 from discord.ext import commands
 from contextlib import asynccontextmanager
 
-from config import (\n    DISCORD_TOKEN, FAHIM_CHANNEL_ID, LAVALINK_PASSWORD,\n    LAVALINK_URI, validate_config,\n)
+from config import (
+    DISCORD_TOKEN, FAHIM_CHANNEL_ID, LAVALINK_PASSWORD,
+    LAVALINK_URI, validate_config,
+)
 from services.ai_service import AIService
 from services.context_service import build_history_question, build_reply_context
 from services.database import DatabaseService
