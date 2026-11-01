@@ -519,6 +519,51 @@ class MusicCog(commands.Cog):
             except Exception:
                 logger.exception("Could not start an alternative search result.")
 
+        # YouTube search results can be listed successfully but fail during
+        # playback (for example, when YouTube requires sign-in). Once those
+        # candidates are exhausted, try the same title on SoundCloud.
+        failed_source = (getattr(failed_track, "source", "") or "").lower()
+        if failed_source != "soundcloud":
+            soundcloud_query = " ".join(
+                part for part in (
+                    getattr(failed_track, "title", ""),
+                    getattr(failed_track, "author", ""),
+                ) if part
+            ).strip()
+            if soundcloud_query:
+                try:
+                    soundcloud_results = await wavelink.Playable.search(
+                        soundcloud_query,
+                        source=wavelink.TrackSource.SoundCloud,
+                    )
+                    soundcloud_tracks = (
+                        soundcloud_results.tracks
+                        if isinstance(soundcloud_results, wavelink.Playlist)
+                        else soundcloud_results
+                    )
+                    if soundcloud_tracks:
+                        next_track = soundcloud_tracks[0]
+                        remaining = list(soundcloud_tracks[1:6])
+                        if remaining:
+                            self._fallback_tracks[next_track.identifier] = remaining
+                        logger.info(
+                            "Retrying failed YouTube track with SoundCloud result: %s | id=%s | alternatives=%s",
+                            next_track.title,
+                            next_track.identifier,
+                            len(remaining),
+                        )
+                        await player.play(next_track)
+                        return
+                    logger.warning(
+                        "SoundCloud returned no results for failed track: %s",
+                        soundcloud_query,
+                    )
+                except Exception:
+                    logger.exception(
+                        "SoundCloud fallback search failed | query=%s",
+                        soundcloud_query,
+                    )
+
         logger.warning(
             "No playable fallback remains for failed track: %s",
             getattr(failed_track, "title", "unknown"),
