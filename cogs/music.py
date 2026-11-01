@@ -135,7 +135,7 @@ class MusicCog(commands.Cog):
                 else:
                     message_text = f"اتضافت {tracks[0].title} للانتظار."
                 if started:
-                    message_text += " وبدأ التشغيل."
+                    message_text += " وبدأت محاولة التشغيل."
                 return {"success": True, "message": message_text, "track": tracks[0].title, "started": started, "queued": added}
             except Exception:
                 logger.exception("AI music playback action failed.")
@@ -275,7 +275,7 @@ class MusicCog(commands.Cog):
         if truncated:
             message += f" (الحد الأقصى للقائمة {MAX_PLAYLIST_TRACKS} أغنية.)"
         if started:
-            message += "\nبدأ التشغيل دلوقتي."
+            message += "\nبدأت محاولة التشغيل دلوقتي."
         else:
             message += f"\nمكانها في الانتظار: **{player.queue.count}**."
 
