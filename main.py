@@ -3,20 +3,17 @@ import logging
 import re
 
 import discord
-import wavelink
 from discord.ext import commands
 from contextlib import asynccontextmanager
 
 from config import (
-    DISCORD_TOKEN, FAHIM_CHANNEL_ID, LAVALINK_PASSWORD,
-    LAVALINK_URI, validate_config,
+    DISCORD_TOKEN, FAHIM_CHANNEL_ID, validate_config,
 )
 from services.ai_service import AIService
 from services.context_service import build_history_question, build_reply_context
 from services.database import DatabaseService
 from services.memory_service import MemoryService
 from services.search_service import SearchService
-from config import MAX_PLAYLIST_TRACKS
 
 
 # =========================
@@ -127,136 +124,31 @@ def split_message(text, limit=1900):
 
 
 async def handle_natural_music_request(bot, message, text):
-    """Handle clear, direct Egyptian-Arabic music requests without a slash command."""
-    if not bot.music_ready or message.guild is None:
+    """Route explicit Egyptian-Arabic music requests to the native music cog."""
+    if message.guild is None:
         return None
-
-    import re
     normalized = re.sub(r"\s+", " ", (text or "").strip())
     normalized = re.sub(r"^يا\s+فهيم\s+[اأإ]?فندي[،,: ]*", "", normalized)
     normalized = re.sub(r"^<@!?\d+>[،,: ]*", "", normalized)
-
-    player = message.guild.voice_client
-    voice_state = getattr(message.author, "voice", None)
-    voice_channel = getattr(voice_state, "channel", None)
-
-    # Playback requests: "شغلي ..." / "شغلنا ..." / "شغّل ..."
-    play_match = re.match(
-        r"^(?:ممكن\s+)?(?:شغل(?:ي|نا)?|شغّل(?:ي|نا)?|شغّل لنا|شغل لنا)\s+(.+)$",
-        normalized,
-        flags=re.IGNORECASE,
-    )
-    if play_match:
-        query = play_match.group(1).strip(" .،!?؟")
-        if not query:
-            return None
-        if voice_channel is None:
-            return "ادخلوا قناة صوتية الأول يا جماعة، مش هشغّل الأغاني في الهوا."
-        if player is None:
-            try:
-                player = await voice_channel.connect(cls=wavelink.Player)
-            except Exception:
-                logger.exception("Natural music request could not connect to voice.")
-                return "مش عارف أدخل القناة الصوتية. راجعوا صلاحياتي."
-        elif not isinstance(player, wavelink.Player) or player.channel.id != voice_channel.id:
-            return "لازم أكون معاكم في نفس القناة الصوتية."
-        try:
-            if "open.spotify.com/" in query.lower():
-                results = await wavelink.Playable.search(query)
-            else:
-                results = await wavelink.Playable.search(query, source="ytsearch")
-            if not results:
-                return "ملقتش أغنية قابلة للتشغيل بالاسم ده."
-
-            logger.info(
-                "Music search result | flow=natural | type=%s | playlist_name=%r | count=%s | query=%s",
-                type(results).__name__,
-                getattr(results, "name", None),
-                len(results.tracks) if isinstance(results, wavelink.Playlist) else len(results),
-                query,
-            )
-
-            is_search_playlist = (
-                isinstance(results, wavelink.Playlist)
-                and (results.name or "").strip().lower().startswith("search results")
-            )
-            playlist_name = None
-            if isinstance(results, wavelink.Playlist) and not is_search_playlist:
-                tracks = results.tracks[:MAX_PLAYLIST_TRACKS]
-                playlist_name = results.name or "الأغاني"
-            else:
-                search_tracks = results.tracks if isinstance(results, wavelink.Playlist) else results
-                if not search_tracks:
-                    return "القائمة دي مفيهاش حاجة تتشغل."
-                tracks = [search_tracks[0]]
-                music_cog = bot.get_cog("MusicCog")
-                if music_cog is not None:
-                    alternatives = list(search_tracks[1:6])
-                    music_cog._fallback_tracks[tracks[0].identifier] = alternatives
-                    logger.info(
-                        "Natural music search stored %s alternatives | query=%s | primary_id=%s",
-                        len(alternatives),
-                        query,
-                        tracks[0].identifier,
-                    )
-
-            if not tracks:
-                return "القائمة دي مفيهاش حاجة تتشغل."
-            await player.queue.put_wait(tracks)
-            started = player.current is None
-            if started:
-                await player.play(player.queue.get())
-            if playlist_name:
-                return f"حاضر، ضفت {len(tracks)} أغنية من قائمة {playlist_name} للانتظار."
-            return f"حاضر، ضفت **{tracks[0].title}** للـQueue." + (" وبدأت محاولة التشغيل." if started else "")
-        except Exception:
-            logger.exception("Natural music playback failed.")
-            return "حصلت مشكلة وأنا بحمّل الأغنية. جرّبوا اسم تاني."
-
-    # Transport controls use explicit phrases to avoid hijacking ordinary chat.
-    control_patterns = [
+    cog = bot.get_cog("MusicCog")
+    if cog is None:
+        return None
+    play = re.match(r"^(?:ممكن\s+)?(?:شغل(?:ي|نا)?|شغّل(?:ي|نا)?|شغّل لنا|شغل لنا)\s+(.+)$", normalized, re.I)
+    if play:
+        result = await cog.execute_ai_action(message, "play", query=play.group(1).strip(" .،!?؟"))
+        return result.get("message")
+    patterns = [
         (r"^(?:وقف|وقفي|وقفلي|وقف لنا) (?:المزيكا|الموسيقى|الأغنية|الأغاني)$", "pause"),
         (r"^(?:كمل|كمّل|استأنف) (?:المزيكا|الموسيقى|الأغنية|الأغاني)$", "resume"),
         (r"^(?:عدي|عدّي|تخطى|تخطّى) (?:الأغنية|التراك|الأغاني)$", "skip"),
         (r"^(?:اقفل|اقفلوا|وقف) (?:المزيكا|الموسيقى) وامسح(?:وا)? الانتظار$", "stop"),
         (r"^(?:اخرج|اطلع) من القناة الصوتية$", "leave"),
     ]
-    action = next((name for pattern, name in control_patterns if re.match(pattern, normalized, re.I)), None)
+    action = next((name for pattern, name in patterns if re.match(pattern, normalized, re.I)), None)
     if action:
-        if player is None or not isinstance(player, wavelink.Player):
-            return "مفيش تشغيل شغال حاليًا."
-        if voice_channel is None or player.channel.id != voice_channel.id:
-            return "لازم تكونوا معايا في نفس القناة الصوتية."
-        try:
-            if action == "pause":
-                if player.current is None or player.paused:
-                    return "الأغنية مش شغالة دلوقتي."
-                await player.pause(True)
-                return "وقفتها مؤقتًا."
-            if action == "resume":
-                if not player.paused:
-                    return "هي مش متوقفة مؤقتًا."
-                await player.pause(False)
-                return "رجّعنا التشغيل."
-            if action == "skip":
-                if player.current is None:
-                    return "مفيش أغنية أعدّيها."
-                await player.skip()
-                return "عدّيناها."
-            if action == "stop":
-                player.queue.clear()
-                if player.current is not None:
-                    await player.stop()
-                return "وقفت التشغيل ومسحت الانتظار."
-            if action == "leave":
-                player.queue.clear()
-                await player.disconnect()
-                return "خرجت من القناة الصوتية."
-        except Exception:
-            logger.exception("Natural music control failed.")
-            return "حصلت مشكلة وأنا بنفذ أمر الموسيقى."
+        result = await cog.execute_ai_action(message, action)
+        return result.get("message")
     return None
-
 
 # =========================
 # Fahim Bot
@@ -278,10 +170,6 @@ class FahimBot(commands.Bot):
         self.memory_service = None
         self.ai_service = None
         self.search_service = None
-        self.music_ready = False
-        self.music_ready_event = asyncio.Event()
-        self.music_node = None
-        self.music_connect_task = None
         self.conversation_locks = KeyedLockPool()
 
     async def on_voice_state_update(self, member, before, after):
@@ -316,14 +204,8 @@ class FahimBot(commands.Bot):
         # Initialize AI service
         self.ai_service = AIService(self.search_service)
 
-        # Register the independent music subsystem before syncing its slash commands.
+        # Register native discord.py music commands.
         await self.load_extension("cogs.music")
-
-        # Connect music in the background so an offline Lavalink node never
-        # prevents the text bot from starting.
-        self.music_connect_task = asyncio.create_task(
-            self.connect_music_node()
-        )
 
         # Register Discord slash commands
         synced = await self.tree.sync()
@@ -333,70 +215,18 @@ class FahimBot(commands.Bot):
             len(synced),
         )
 
-    async def connect_music_node(self):
-        for attempt in range(1, 21):
-            node = wavelink.Node(
-                identifier="fahim-music",
-                uri=LAVALINK_URI,
-                password=LAVALINK_PASSWORD,
-                retries=3,
-                client=self,
-                inactive_player_timeout=300,
-            )
-            try:
-                await wavelink.Pool.connect(nodes=[node], client=self)
-                # Pool.connect starts the node connection; it does not guarantee
-                # that Lavalink has completed its WebSocket handshake yet.
-                await asyncio.wait_for(self.music_ready_event.wait(), timeout=15)
-                self.music_node = node
-                logger.info("Lavalink music node is ready.")
-                return
-            except Exception:
-                self.music_ready = False
-                self.music_ready_event.clear()
-                logger.warning(
-                    "Lavalink connection attempt %s/20 failed.",
-                    attempt,
-                    exc_info=True,
-                )
-                try:
-                    await wavelink.Pool.close()
-                except Exception:
-                    pass
-                if attempt < 20:
-                    await asyncio.sleep(3)
-
-        logger.warning(
-            "Lavalink did not become available. Text chat remains active; "
-            "music commands will stay offline until the bot reconnects."
-        )
-
     async def close(self):
         try:
             if self.ai_service:
-                try:
-                    await self.ai_service.client.aclose()
-                except Exception:
-                    logger.exception("Failed to close Gemini client.")
-        finally:
-            try:
-                if self.database_service:
-                    await self.database_service.close()
-            except Exception:
-                logger.exception("Failed to close MongoDB connection.")
-            finally:
-                try:
-                    if self.music_connect_task and not self.music_connect_task.done():
-                        self.music_connect_task.cancel()
-                        await asyncio.gather(
-                            self.music_connect_task,
-                            return_exceptions=True,
-                        )
-                    await wavelink.Pool.close()
-                except Exception:
-                    logger.exception("Failed to close Lavalink music node.")
-                finally:
-                    await super().close()
+                await self.ai_service.client.aclose()
+        except Exception:
+            logger.exception("Failed to close Gemini client.")
+        try:
+            if self.database_service:
+                await self.database_service.close()
+        except Exception:
+            logger.exception("Failed to close MongoDB connection.")
+        await super().close()
 
 
     async def resolve_reference_message(self, message: discord.Message):
