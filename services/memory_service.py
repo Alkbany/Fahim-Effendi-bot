@@ -11,6 +11,23 @@ from config import (
 )
 
 
+_CREDENTIAL_PATTERNS = (
+    re.compile(r"(?i)\\b(?:password|passwd|pwd|api[_ -]?key|access[_ -]?token|refresh[_ -]?token|client[_ -]?secret|secret[_ -]?key)\\b\\s*[:=]\\s*\\S+"),
+    re.compile(r"AIza[0-9A-Za-z_-]{20,}"),
+    re.compile(r"(?i)\\bmfa\\.[A-Za-z0-9_-]{20,}"),
+    re.compile(r"\\b[A-Za-z0-9_-]{24,}\\.[A-Za-z0-9_-]{6,}\\.[A-Za-z0-9_-]{20,}\\b"),
+    re.compile(r"\\bAKIA[0-9A-Z]{16}\\b"),
+    re.compile(r"-----BEGIN (?:RSA |EC |OPENSSH )?PRIVATE KEY-----"),
+)
+
+
+def contains_credential(value):
+    """Return True when text appears to contain a credential or private key."""
+    if not isinstance(value, str):
+        return False
+    return any(pattern.search(value) for pattern in _CREDENTIAL_PATTERNS)
+
+
 class MemoryService:
 
     def __init__(self, database_service):
@@ -137,6 +154,8 @@ class MemoryService:
             raise ValueError("Memory topic and summary cannot be empty.")
         if len(topic) > 200 or len(summary) > MAX_MEMORY_TEXT_CHARS:
             raise ValueError("Guild memory exceeds the allowed size.")
+        if contains_credential(topic) or contains_credential(summary):
+            raise ValueError("Credentials and private keys cannot be stored in memory.")
 
         now = datetime.now(timezone.utc)
 
@@ -216,6 +235,8 @@ class MemoryService:
             raise ValueError("Memory key and value cannot be empty.")
         if len(key) > 100 or len(value) > MAX_MEMORY_TEXT_CHARS:
             raise ValueError("User memory exceeds the allowed size.")
+        if contains_credential(key) or contains_credential(value):
+            raise ValueError("Credentials and private keys cannot be stored in memory.")
 
         now = datetime.now(timezone.utc)
 
@@ -288,6 +309,8 @@ class MemoryService:
             raise ValueError("Relationship event exceeds the allowed size.")
         if len(summary) > MAX_MEMORY_TEXT_CHARS:
             raise ValueError("Relationship summary exceeds the allowed size.")
+        if contains_credential(details) or contains_credential(summary):
+            raise ValueError("Credentials and private keys cannot be stored in memory.")
 
         key = {
             "guild_id": str(guild_id),
