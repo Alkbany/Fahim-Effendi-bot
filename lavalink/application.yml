@@ -13,7 +13,7 @@ lavalink:
       vimeo: true
       nico: true
       http: false
-      local: false
+      local: true
     filters:
       volume: true
     bufferDurationMs: 400
