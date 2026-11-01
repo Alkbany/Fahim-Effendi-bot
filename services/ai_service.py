@@ -487,15 +487,12 @@ class AIService:
                         else:
                             search_used = True
                             tool_state["search_used"] = True
-                            logger.info("Web search query: %s", query)
+                            logger.info("Web search requested.")
                             function_result = await self.execute_search(query)
-
-                            for result in function_result.get("results", []):
-                                logger.info(
-                                    "Web search result | title=%s | snippet=%s",
-                                    result.get("title", ""),
-                                    result.get("snippet", "")[:400],
-                                )
+                            logger.info(
+                                "Web search completed | results=%d",
+                                len(function_result.get("results", [])),
+                            )
 
                             indexed_results = []
                             for index, item in enumerate(
@@ -909,10 +906,7 @@ required before returning to normal.
                 f"{now.strftime('%Y-%m-%d')}"
             )
 
-            logger.info(
-                "Mandatory price search triggered: %s",
-                search_query,
-            )
+            logger.info("Mandatory current-price search triggered.")
 
             search_result = await self.execute_search(search_query)
             indexed_results = []
