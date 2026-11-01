@@ -4,6 +4,7 @@ import re
 
 import discord
 from discord.ext import commands
+from contextlib import asynccontextmanager
 
 from config import DISCORD_TOKEN, FAHIM_CHANNEL_ID, validate_config
 from services.ai_service import AIService
@@ -23,6 +24,38 @@ logging.basicConfig(
 )
 
 logger = logging.getLogger("fahim")
+
+
+class KeyedLockPool:
+    """Serialize work per conversation without blocking other conversations."""
+
+    def __init__(self):
+        self._entries = {}
+        self._guard = asyncio.Lock()
+
+    @asynccontextmanager
+    async def hold(self, key):
+        async with self._guard:
+            entry = self._entries.get(key)
+            if entry is None:
+                entry = [asyncio.Lock(), 0]
+                self._entries[key] = entry
+            entry[1] += 1
+
+        lock, _ = entry
+        acquired = False
+        try:
+            await lock.acquire()
+            acquired = True
+            yield
+        finally:
+            if acquired:
+                lock.release()
+
+            async with self._guard:
+                entry[1] -= 1
+                if entry[1] == 0 and self._entries.get(key) is entry:
+                    self._entries.pop(key, None)
 
 
 # =========================
@@ -106,6 +139,7 @@ class FahimBot(commands.Bot):
         self.memory_service = None
         self.ai_service = None
         self.search_service = None
+        self.conversation_locks = KeyedLockPool()
 
     async def setup_hook(self):
         validate_config()
@@ -249,51 +283,52 @@ class FahimBot(commands.Bot):
                 guild_id = message.guild.id
                 user_id = message.author.id
 
-                history = await self.memory_service.get_history(
-                    guild_id,
-                    user_id,
-                )
+                async with self.conversation_locks.hold((guild_id, user_id)):
+                    history = await self.memory_service.get_history(
+                        guild_id,
+                        user_id,
+                    )
 
-                personal_memories, shared_memories, relationship_memory = await asyncio.gather(
-                    self.memory_service.get_relevant_user_memories(
-                        guild_id, user_id, question
-                    ),
-                    self.memory_service.get_relevant_guild_memories(
-                        guild_id, question
-                    ),
-                    self.memory_service.get_relationship_memory(
-                        guild_id, user_id
-                    ),
-                )
+                    personal_memories, shared_memories, relationship_memory = await asyncio.gather(
+                        self.memory_service.get_relevant_user_memories(
+                            guild_id, user_id, question
+                        ),
+                        self.memory_service.get_relevant_guild_memories(
+                            guild_id, question
+                        ),
+                        self.memory_service.get_relationship_memory(
+                            guild_id, user_id
+                        ),
+                    )
 
-                if relationship_memory:
-                    personal_memories = [
-                        item for item in personal_memories
-                        if item.get("key") != "relationship_state"
-                    ]
-                    personal_memories.append(relationship_memory)
+                    if relationship_memory:
+                        personal_memories = [
+                            item for item in personal_memories
+                            if item.get("key") != "relationship_state"
+                        ]
+                        personal_memories.append(relationship_memory)
 
-                answer = await self.ai_service.generate_response(
-                    question,
-                    history=history,
-                    memories={
-                        "personal": personal_memories,
-                        "shared": shared_memories,
-                    },
-                    relationship_event_callback=make_relationship_event_callback(
-                        self.memory_service, guild_id, user_id
-                    ),
-                    memory_event_callbacks=make_memory_event_callbacks(
-                        self.memory_service, guild_id, user_id
-                    ),
-                )
+                    answer = await self.ai_service.generate_response(
+                        question,
+                        history=history,
+                        memories={
+                            "personal": personal_memories,
+                            "shared": shared_memories,
+                        },
+                        relationship_event_callback=make_relationship_event_callback(
+                            self.memory_service, guild_id, user_id
+                        ),
+                        memory_event_callbacks=make_memory_event_callbacks(
+                            self.memory_service, guild_id, user_id
+                        ),
+                    )
 
-                await self.memory_service.save_turn(
-                    guild_id,
-                    user_id,
-                    question,
-                    answer,
-                )
+                    await self.memory_service.save_turn(
+                        guild_id,
+                        user_id,
+                        question,
+                        answer,
+                    )
 
             chunks = split_message(answer)
 
@@ -350,54 +385,55 @@ async def ask(
         guild_id = interaction.guild_id
         user_id = interaction.user.id
 
-        # Retrieve this member's conversation history
-        history = await bot.memory_service.get_history(
-            guild_id,
-            user_id,
-        )
+        async with bot.conversation_locks.hold((guild_id, user_id)):
+            # Retrieve this member's conversation history
+            history = await bot.memory_service.get_history(
+                guild_id,
+                user_id,
+            )
 
-        # Generate Fahim's response
-        personal_memories, shared_memories, relationship_memory = await asyncio.gather(
-            bot.memory_service.get_relevant_user_memories(
-                guild_id, user_id, question
-            ),
-            bot.memory_service.get_relevant_guild_memories(
-                guild_id, question
-            ),
-            bot.memory_service.get_relationship_memory(
-                guild_id, user_id
-            ),
-        )
+            # Generate Fahim's response
+            personal_memories, shared_memories, relationship_memory = await asyncio.gather(
+                bot.memory_service.get_relevant_user_memories(
+                    guild_id, user_id, question
+                ),
+                bot.memory_service.get_relevant_guild_memories(
+                    guild_id, question
+                ),
+                bot.memory_service.get_relationship_memory(
+                    guild_id, user_id
+                ),
+            )
 
-        if relationship_memory:
-            personal_memories = [
-                item for item in personal_memories
-                if item.get("key") != "relationship_state"
-            ]
-            personal_memories.append(relationship_memory)
+            if relationship_memory:
+                personal_memories = [
+                    item for item in personal_memories
+                    if item.get("key") != "relationship_state"
+                ]
+                personal_memories.append(relationship_memory)
 
-        answer = await bot.ai_service.generate_response(
-            question,
-            history=history,
-            memories={
-                "personal": personal_memories,
-                "shared": shared_memories,
-            },
-            relationship_event_callback=make_relationship_event_callback(
-                bot.memory_service, guild_id, user_id
-            ),
-            memory_event_callbacks=make_memory_event_callbacks(
-                bot.memory_service, guild_id, user_id
-            ),
-        )
+            answer = await bot.ai_service.generate_response(
+                question,
+                history=history,
+                memories={
+                    "personal": personal_memories,
+                    "shared": shared_memories,
+                },
+                relationship_event_callback=make_relationship_event_callback(
+                    bot.memory_service, guild_id, user_id
+                ),
+                memory_event_callbacks=make_memory_event_callbacks(
+                    bot.memory_service, guild_id, user_id
+                ),
+            )
 
-        # Save the conversation
-        await bot.memory_service.save_turn(
-            guild_id,
-            user_id,
-            question,
-            answer,
-        )
+            # Save the conversation
+            await bot.memory_service.save_turn(
+                guild_id,
+                user_id,
+                question,
+                answer,
+            )
 
         # Replace the temporary message with Fahim's answer
         chunks = split_message(answer)
@@ -439,10 +475,13 @@ async def reset(
         return
 
     try:
-        deleted = await bot.memory_service.reset_conversation(
-            interaction.guild_id,
-            interaction.user.id,
-        )
+        async with bot.conversation_locks.hold(
+            (interaction.guild_id, interaction.user.id)
+        ):
+            deleted = await bot.memory_service.reset_conversation(
+                interaction.guild_id,
+                interaction.user.id,
+            )
 
         if deleted:
             message = "اتمسح سجل محادثتنا في الوكالة يا سيدي."
