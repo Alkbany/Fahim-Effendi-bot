@@ -15,3 +15,13 @@ def build_reply_context(question, referenced_content):
         "[CURRENT MEMBER MESSAGE]\n"
         f"{current_question}"
     )
+
+
+def build_history_question(question, has_reference=False):
+    """Return only the member-authored text suitable for persistent history."""
+    current_question = (question or "").strip()
+    if current_question:
+        return current_question
+    if has_reference:
+        return "كمّل كلامك عن الرسالة دي."
+    return ""
