@@ -12,11 +12,11 @@ from config import (
 
 
 _CREDENTIAL_PATTERNS = (
-    re.compile(r"(?i)\\b(?:password|passwd|pwd|api[_ -]?key|access[_ -]?token|refresh[_ -]?token|client[_ -]?secret|secret[_ -]?key)\\b\\s*[:=]\\s*\\S+"),
+    re.compile(r"(?i)\b(?:password|passwd|pwd|api[_ -]?key|access[_ -]?token|refresh[_ -]?token|client[_ -]?secret|secret[_ -]?key)\b\s*[:=]\s*\S+"),
     re.compile(r"AIza[0-9A-Za-z_-]{20,}"),
-    re.compile(r"(?i)\\bmfa\\.[A-Za-z0-9_-]{20,}"),
-    re.compile(r"\\b[A-Za-z0-9_-]{24,}\\.[A-Za-z0-9_-]{6,}\\.[A-Za-z0-9_-]{20,}\\b"),
-    re.compile(r"\\bAKIA[0-9A-Z]{16}\\b"),
+    re.compile(r"(?i)\bmfa\.[A-Za-z0-9_-]{20,}"),
+    re.compile(r"\b[A-Za-z0-9_-]{24,}\.[A-Za-z0-9_-]{6,}\.[A-Za-z0-9_-]{20,}\b"),
+    re.compile(r"\bAKIA[0-9A-Z]{16}\b"),
     re.compile(r"-----BEGIN (?:RSA |EC |OPENSSH )?PRIVATE KEY-----"),
 )
 
