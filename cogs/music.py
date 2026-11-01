@@ -120,7 +120,15 @@ class MusicCog(commands.Cog):
                     playlist_name = results.name or "قائمة الأغاني"
                 else:
                     tracks = [results[0]]
-                    self._fallback_tracks[tracks[0].identifier] = list(results[1:6])
+                    alternatives = list(results[1:6])
+                    self._fallback_tracks[tracks[0].identifier] = alternatives
+                    logger.info(
+                        "AI music search returned %s tracks; stored %s alternatives | query=%s | primary_id=%s",
+                        len(results),
+                        len(alternatives),
+                        search_query,
+                        tracks[0].identifier,
+                    )
                     playlist_name = None
                 if not tracks:
                     return {"success": False, "message": "القائمة دي مفيهاش أغاني قابلة للتشغيل."}
@@ -251,7 +259,15 @@ class MusicCog(commands.Cog):
             truncated = len(results.tracks) > len(tracks)
         else:
             tracks = [results[0]]
-            self._fallback_tracks[tracks[0].identifier] = list(results[1:6])
+            alternatives = list(results[1:6])
+            self._fallback_tracks[tracks[0].identifier] = alternatives
+            logger.info(
+                "Slash play search returned %s tracks; stored %s alternatives | query=%s | primary_id=%s",
+                len(results),
+                len(alternatives),
+                query.strip(),
+                tracks[0].identifier,
+            )
             playlist_name = None
             truncated = False
 
