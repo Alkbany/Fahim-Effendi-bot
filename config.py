@@ -56,8 +56,6 @@ MAX_GUILD_MEMORIES = 3
 MAX_MEMORY_TEXT_CHARS = 1000
 MAX_MEMORY_CONTEXT_CHARS = 4000
 
-# Music playlist safety limit
-MAX_PLAYLIST_TRACKS = 100
 
 # Dedicated channel for Fahim
 FAHIM_CHANNEL_ID = int(
