@@ -249,6 +249,7 @@ class FahimBot(commands.Bot):
         self.ai_service = None
         self.search_service = None
         self.music_ready = False
+        self.music_ready_event = asyncio.Event()
         self.music_node = None
         self.music_connect_task = None
         self.conversation_locks = KeyedLockPool()
@@ -294,18 +295,21 @@ class FahimBot(commands.Bot):
                 identifier="fahim-music",
                 uri=LAVALINK_URI,
                 password=LAVALINK_PASSWORD,
-                retries=1,
+                retries=3,
                 client=self,
                 inactive_player_timeout=300,
             )
             try:
                 await wavelink.Pool.connect(nodes=[node], client=self)
+                # Pool.connect starts the node connection; it does not guarantee
+                # that Lavalink has completed its WebSocket handshake yet.
+                await asyncio.wait_for(self.music_ready_event.wait(), timeout=15)
                 self.music_node = node
-                self.music_ready = True
-                logger.info("Lavalink music node connected.")
+                logger.info("Lavalink music node is ready.")
                 return
             except Exception:
                 self.music_ready = False
+                self.music_ready_event.clear()
                 logger.warning(
                     "Lavalink connection attempt %s/20 failed.",
                     attempt,
