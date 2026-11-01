@@ -324,6 +324,39 @@ class MusicCog(commands.Cog):
 
         await interaction.followup.send(message)
 
+    @app_commands.command(name="testlocal", description="Test local Lavalink audio file")
+    async def testlocal(self, interaction: discord.Interaction):
+        await interaction.response.defer(thinking=True)
+
+        player, error = await self._get_player(interaction, connect=True)
+        if error:
+            await interaction.followup.send(error)
+            return
+
+        try:
+            results = await wavelink.Playable.search(
+                "/opt/Lavalink/local-audio/test.mp3"
+            )
+            if not results:
+                await interaction.followup.send("Lavalink ملقاش ملف الاختبار المحلي.")
+                return
+
+            track = results[0]
+            async with self._lock_for(interaction.guild_id):
+                player.queue.clear()
+                if player.current is not None:
+                    await player.stop()
+                await player.play(track)
+
+            await interaction.followup.send(
+                f"بدأ اختبار الملف المحلي: **{track.title}** ({format_duration(track.length)})."
+            )
+        except Exception:
+            logger.exception("Local Lavalink playback test failed.")
+            await interaction.followup.send(
+                "فشل اختبار الملف المحلي. راجع لوجز البوت وLavalink."
+            )
+
     @app_commands.command(name="pause", description="Pause the current song")
     async def pause(self, interaction: discord.Interaction):
         player, error = await self._get_player(interaction)
