@@ -75,6 +75,12 @@ python main.py
 
 On startup, Fahim validates configuration, connects to MongoDB, verifies the required indexes, initializes the AI and search services, and syncs Discord slash commands.
 
+## GitHub Codespaces testing
+
+A ready-to-use Codespaces development container is provided in `.devcontainer/`. Open the repository with **Code → Codespaces → Create codespace on main**; dependencies install automatically. Add the required credentials privately as Codespaces secrets or in a local ignored `.env` file. Never commit or share them.
+
+Follow [`docs/CODESPACES_TEST_PLAN.md`](docs/CODESPACES_TEST_PLAN.md) for the full unit and live integration test sequence. Codespaces is for development and testing; it is not the final 24/7 host.
+
 ## Tests
 
 Run the full unit-test suite without connecting to Discord, Gemini, or MongoDB:
