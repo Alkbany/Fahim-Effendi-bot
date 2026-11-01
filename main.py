@@ -452,12 +452,6 @@ class FahimBot(commands.Bot):
             return
 
         try:
-            music_reply = await handle_natural_music_request(self, message, question)
-            if music_reply is not None:
-                await message.reply(music_reply, mention_author=False)
-                await self.process_commands(message)
-                return
-
             async with message.channel.typing():
                 guild_id = message.guild.id
                 user_id = message.author.id
@@ -491,6 +485,12 @@ class FahimBot(commands.Bot):
                             "بعد اللي حصل بينا، مش هقدر أتعامل معاك كأن مفيش حاجة. لما تبقى مستعد تعتذر بوضوح عن اللي صدر منك، نبقى نتكلم.",
                             mention_author=False,
                         )
+                        await self.process_commands(message)
+                        return
+
+                    music_reply = await handle_natural_music_request(self, message, question)
+                    if music_reply is not None:
+                        await message.reply(music_reply, mention_author=False)
                         await self.process_commands(message)
                         return
 
