@@ -113,6 +113,23 @@ class MessageTriggerTests(unittest.IsolatedAsyncioTestCase):
         )
         message.channel.fetch_message.assert_awaited_once_with(123)
 
+    async def test_listener_does_not_fetch_reference_for_ordinary_message(self):
+        message = self.make_message(content="صباح الخير")
+        message.reference = SimpleNamespace(
+            resolved=None,
+            message_id=123,
+        )
+        process_commands = AsyncMock()
+        original = self.bot.process_commands
+        self.bot.process_commands = process_commands
+        try:
+            await self.bot.on_message(message)
+        finally:
+            self.bot.process_commands = original
+
+        message.channel.fetch_message.assert_not_awaited()
+        process_commands.assert_awaited_once_with(message)
+
     async def test_ordinary_message_elsewhere_does_not_trigger(self):
         message = self.make_message(content="صباح الخير")
         self.assertFalse(
