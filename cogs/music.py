@@ -452,27 +452,40 @@ class MusicCog(commands.Cog):
         if player is None:
             return
 
+        failed_track = payload.track
         logger.warning(
-            "Track playback failed in guild %s: %s",
+            "Track playback failed in guild %s | track=%s | id=%s | error=%s",
             player.guild.id,
+            getattr(failed_track, "title", "unknown"),
+            getattr(failed_track, "identifier", "unknown"),
             str(payload.exception),
         )
-        current = player.current
-        if current is not None:
-            alternatives = self._fallback_tracks.pop(current.identifier, [])
+
+        alternatives = self._fallback_tracks.pop(failed_track.identifier, [])
+        logger.info(
+            "Alternative search results available: %s",
+            len(alternatives),
+        )
+        if alternatives:
+            next_track = alternatives.pop(0)
             if alternatives:
-                next_track = alternatives.pop(0)
-                if alternatives:
-                    self._fallback_tracks[next_track.identifier] = alternatives
-                logger.info(
-                    "Retrying playback with an alternative search result: %s",
-                    next_track.title,
-                )
-                try:
-                    await player.play(next_track)
-                    return
-                except Exception:
-                    logger.exception("Could not start an alternative search result.")
+                self._fallback_tracks[next_track.identifier] = alternatives
+            logger.info(
+                "Retrying playback with alternative result: %s | id=%s",
+                next_track.title,
+                next_track.identifier,
+            )
+            try:
+                await player.play(next_track)
+                return
+            except Exception:
+                logger.exception("Could not start an alternative search result.")
+
+        logger.warning(
+            "No playable fallback remains for failed track: %s",
+            getattr(failed_track, "title", "unknown"),
+        )
+        if player.current is not None:
             await player.skip()
 
     @commands.Cog.listener()
