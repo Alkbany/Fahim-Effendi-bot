@@ -70,3 +70,23 @@ the whole bot from starting.
    playlist URL.
 6. Stop Lavalink and confirm that chat still works while music commands report
    the node as offline.
+
+## Natural-language music requests
+
+Fahim can interpret direct music requests through Gemini function calling instead
+of relying only on fixed Arabic command patterns. It can play a named track or
+a clearly requested mood/genre, pause/resume/skip/stop, leave voice, report the
+current track, show the queue, shuffle, set repeat mode, and set volume.
+
+The model must distinguish an actual request to act now from ordinary music
+discussion, recommendations, hypotheticals, and memories. It must ask for
+clarification when a referenced track is not identifiable, and it may execute
+at most one music action per member message. The player result—not the model's
+assumption—is the source of truth for whether an action succeeded.
+
+The existing explicit Arabic command patterns remain as a fast path. Other
+messages use the same Gemini request already used for the conversation; music
+tool calling does not add a separate classification request. As with any
+language model interpretation, ambiguous phrasing can still be misunderstood,
+so verify behavior with the test cases and real Discord messages before relying
+on it in a busy voice channel.
