@@ -79,7 +79,7 @@ On startup, Fahim validates configuration, connects to MongoDB, verifies the req
 
 A ready-to-use Codespaces development container is provided in `.devcontainer/`. Open the repository with **Code → Codespaces → Create codespace on main**; dependencies install automatically. Add the required credentials privately as Codespaces secrets or in a local ignored `.env` file. Never commit or share them.
 
-Follow [`docs/CODESPACES_TEST_PLAN.md`](docs/CODESPACES_TEST_PLAN.md) for the full unit and live integration test sequence. Codespaces is for development and testing; it is not the final 24/7 host.
+Follow [`docs/CODESPACES_TEST_PLAN.md`](docs/CODESPACES_TEST_PLAN.md) for the full unit and live integration test sequence. In Codespaces, start the stack with `docker compose -f docker-compose.yml -f docker-compose.codespaces.yml up -d --build`; this Codespaces-only override uses host networking to work around the Docker bridge's outbound-network restriction. Keep the regular `docker-compose.yml` for ordinary local and production deployments. Codespaces is for development and testing; it is not the final 24/7 host.
 
 ## Tests
 
