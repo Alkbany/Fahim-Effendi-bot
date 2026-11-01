@@ -243,7 +243,19 @@ class FahimBot(commands.Bot):
 
         content = message.content or ""
 
-        reference_message = await self.resolve_reference_message(message)
+        # Do not fetch Discord reply targets for ordinary messages. Only
+        # resolve a reference after cheap local routing checks show that the
+        # message might be a reply to Fahim.
+        direct_trigger = (
+            message.channel.id == FAHIM_CHANNEL_ID
+            or re.search(rf"<@!?{self.user.id}>", content) is not None
+            or re.search(r"يا\\s+فهيم\\s+[اأإ]?فندي", content) is not None
+        )
+
+        reference_message = None
+        if not direct_trigger and message.reference:
+            reference_message = await self.resolve_reference_message(message)
+
         if not await self.should_respond_to_message(message, reference_message):
             await self.process_commands(message)
             return
