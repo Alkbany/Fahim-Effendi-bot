@@ -62,7 +62,7 @@ Copy `.env.example` to `.env` and fill in the real values:
 - `DISCORD_TOKEN`: token from the Discord Developer Portal.
 - `GEMINI_API_KEY`: Gemini API key.
 - `MONGO_URI`: MongoDB connection string.
-- `GEMINI_MODEL`: optional primary Gemini model override.
+- `GEMINI_MODEL`: optional primary Gemini model override (defaults to `gemini-3.5-flash-lite`; temporary API failures fall back to `gemini-3.6-flash`).
 - `FAHIM_CHANNEL_ID`: optional channel ID. If omitted, the current configured default is used.
 
 The application loads `.env` automatically. Never commit `.env` or share its contents.

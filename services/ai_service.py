@@ -28,7 +28,7 @@ ARABIC_DAYS = [
     "الخميس", "الجمعة", "السبت", "الأحد",
 ]
 
-FALLBACK_MODEL = "gemini-3.5-flash-lite"
+FALLBACK_MODEL = "gemini-3.6-flash"
 
 TEMPORARY_ERROR_CODES = {429, 500, 502, 503, 504}
 
