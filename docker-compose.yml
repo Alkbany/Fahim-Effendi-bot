@@ -1,0 +1,10 @@
+services:
+  fahim:
+    build:
+      context: .
+    container_name: fahim-effendi-bot
+    restart: unless-stopped
+    init: true
+    env_file:
+      - .env
+    stop_grace_period: 30s
