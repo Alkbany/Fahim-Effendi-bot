@@ -8,7 +8,7 @@ from contextlib import asynccontextmanager
 
 from config import DISCORD_TOKEN, FAHIM_CHANNEL_ID, validate_config
 from services.ai_service import AIService
-from services.context_service import build_reply_context
+from services.context_service import build_history_question, build_reply_context
 from services.database import DatabaseService
 from services.memory_service import MemoryService
 from services.search_service import SearchService
@@ -260,9 +260,11 @@ class FahimBot(commands.Bot):
 
         # Persist only what the member actually typed. Reply context is temporary
         # prompt context and should not be duplicated in the conversation transcript.
-        history_question = question
-        if not history_question and message.reference:
-            history_question = "كمّل كلامك عن الرسالة دي."
+        # Persist only member-authored text; referenced bot text is prompt-only.
+        history_question = build_history_question(
+            question,
+            has_reference=message.reference is not None,
+        )
 
         # A reply to Fahim must carry the exact message being replied to.
         # Recent chat history alone is insufficient when the target is older.
