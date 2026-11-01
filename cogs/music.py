@@ -334,7 +334,8 @@ class MusicCog(commands.Cog):
             return
 
         try:
-            results = await wavelink.Playable.search(
+            # Use the raw local path; Playable.search() defaults to ytmsearch.
+            results = await wavelink.Pool.fetch_tracks(
                 "/opt/Lavalink/local-audio/test.mp3"
             )
             if not results:
