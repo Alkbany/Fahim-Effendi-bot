@@ -12,12 +12,15 @@ from config import (
 
 
 _CREDENTIAL_PATTERNS = (
-    re.compile(r"(?i)\b(?:password|passwd|pwd|api[_ -]?key|access[_ -]?token|refresh[_ -]?token|client[_ -]?secret|secret[_ -]?key)\b\s*[:=]\s*\S+"),
+    re.compile(r"(?i)\b(?:password|passwd|pwd|api[_ -]?key|access[_ -]?token|refresh[_ -]?token|client[_ -]?secret|secret[_ -]?key|discord[_ -]?token|gemini[_ -]?api[_ -]?key|mongo(?:db)?[_ -]?uri|database[_ -]?url|connection[_ -]?string)\b\s*[:=]\s*\S+"),
+    re.compile(r"(?i)\bBearer\s+[A-Za-z0-9._~+/=-]+"),
     re.compile(r"AIza[0-9A-Za-z_-]{20,}"),
     re.compile(r"(?i)\bmfa\.[A-Za-z0-9_-]{20,}"),
     re.compile(r"\b[A-Za-z0-9_-]{24,}\.[A-Za-z0-9_-]{6,}\.[A-Za-z0-9_-]{20,}\b"),
     re.compile(r"\bAKIA[0-9A-Z]{16}\b"),
+    re.compile(r"\b(?:sk-[A-Za-z0-9_-]{20,}|gh[pousr]_[A-Za-z0-9]{20,}|github_pat_[A-Za-z0-9_]{20,})\b"),
     re.compile(r"-----BEGIN (?:RSA |EC |OPENSSH )?PRIVATE KEY-----"),
+    re.compile(r"-----BEGIN (?:RSA |EC |OPENSSH )?PRIVATE KEY-----.*?-----END (?:RSA |EC |OPENSSH )?PRIVATE KEY-----", re.DOTALL),
 )
 
 
@@ -26,6 +29,15 @@ def contains_credential(value):
     if not isinstance(value, str):
         return False
     return any(pattern.search(value) for pattern in _CREDENTIAL_PATTERNS)
+
+
+def redact_credentials(value):
+    """Redact recognized credentials before persisting conversation history."""
+    if not isinstance(value, str):
+        return value
+    for pattern in _CREDENTIAL_PATTERNS:
+        value = pattern.sub("[REDACTED]", value)
+    return value
 
 
 class MemoryService:
@@ -104,8 +116,16 @@ class MemoryService:
         }
 
         messages = [
-            {"role": "user", "text": question, "timestamp": now},
-            {"role": "model", "text": answer, "timestamp": now},
+            {
+                "role": "user",
+                "text": redact_credentials(question),
+                "timestamp": now,
+            },
+            {
+                "role": "model",
+                "text": redact_credentials(answer),
+                "timestamp": now,
+            },
         ]
 
         await self._upsert_with_duplicate_retry(

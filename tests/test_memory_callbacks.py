@@ -5,6 +5,26 @@ import main
 from services.memory_service import MemoryService
 
 
+class ConversationHistoryRedactionTests(unittest.IsolatedAsyncioTestCase):
+    async def test_save_turn_redacts_credentials_from_user_and_model_text(self):
+        service = MemoryService.__new__(MemoryService)
+        service.conversations = AsyncMock()
+
+        await service.save_turn(
+            100,
+            200,
+            "My key is AIza" + "A" * 35,
+            "Use password=hunter2 to log in.",
+        )
+
+        update = service.conversations.update_one.await_args.args[1]
+        saved_messages = update["$push"]["history"]["$each"]
+        self.assertIn("[REDACTED]", saved_messages[0]["text"])
+        self.assertNotIn("AIza", saved_messages[0]["text"])
+        self.assertIn("[REDACTED]", saved_messages[1]["text"])
+        self.assertNotIn("hunter2", saved_messages[1]["text"])
+
+
 class MemorySecurityTests(unittest.IsolatedAsyncioTestCase):
     async def test_personal_memory_rejects_api_keys_before_database_write(self):
         service = MemoryService.__new__(MemoryService)
