@@ -94,18 +94,49 @@ class MemoryService:
         return [document for _, document in ranked[:limit]]
 
     async def get_history(self, guild_id, user_id):
+        key = {
+            "guild_id": str(guild_id),
+            "user_id": str(user_id),
+        }
         document = await self.conversations.find_one(
-            {
-                "guild_id": str(guild_id),
-                "user_id": str(user_id),
-            },
+            key,
             {"history": 1, "_id": 0},
         )
 
         if not document:
             return []
 
-        return document.get("history", [])
+        history = document.get("history", [])
+        if not isinstance(history, list):
+            return []
+
+        # Sanitize records written before credential redaction was added.
+        # The bot serializes each member's conversation reads/writes with a
+        # keyed lock, so this cleanup cannot race with its own save_turn call.
+        sanitized_history = []
+        changed = False
+
+        for message in history:
+            if not isinstance(message, dict):
+                sanitized_history.append(message)
+                continue
+
+            text = message.get("text")
+            if isinstance(text, str):
+                sanitized_text = redact_credentials(text)
+                if sanitized_text != text:
+                    message = {**message, "text": sanitized_text}
+                    changed = True
+
+            sanitized_history.append(message)
+
+        if changed:
+            await self.conversations.update_one(
+                key,
+                {"$set": {"history": sanitized_history}},
+            )
+
+        return sanitized_history
 
     async def save_turn(self, guild_id, user_id, question, answer):
         now = datetime.now(timezone.utc)
