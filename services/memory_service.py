@@ -65,21 +65,56 @@ class MemoryService:
             )
 
     @staticmethod
+    def _normalize_search_text(text):
+        if not isinstance(text, str):
+            return ""
+
+        text = text.lower().translate(str.maketrans({
+            "أ": "ا",
+            "إ": "ا",
+            "آ": "ا",
+            "ٱ": "ا",
+            "ى": "ي",
+            "ة": "ه",
+            "ؤ": "و",
+            "ئ": "ي",
+        }))
+        text = re.sub(r"[\u064B-\u065F\u0670\u0640]", "", text)
+        return text
+
+    @staticmethod
     def _search_terms(text):
-        words = re.findall(r"[\w\u0600-\u06FF]+", text.lower())
-        return list(dict.fromkeys(
-            word for word in words if len(word) > 2
-        ))[:10]
+        stop_words = {
+            "انا", "انت", "انتي", "احنا", "هو", "هي", "هم",
+            "ده", "دي", "دا", "دول", "اللي", "ايه", "اي",
+            "ازاي", "بكام", "كام", "هل", "في", "من", "على",
+            "عن", "مع", "الى", "الي", "ما", "مش", "ولا",
+            "بس", "كل", "بعد", "قبل", "كان", "كانت", "يا",
+            "the", "and", "for", "with", "that", "this",
+            "what", "when", "where", "which", "how", "you",
+            "your", "are", "was", "were", "have", "has",
+        }
+        normalized = MemoryService._normalize_search_text(text)
+        words = re.findall(r"[\w\u0600-\u06FF]+", normalized)
+        terms = []
+        for word in words:
+            if word.startswith("ال") and len(word) > 4:
+                word = word[2:]
+            if len(word) > 2 and word not in stop_words and word not in terms:
+                terms.append(word)
+            if len(terms) >= 10:
+                break
+        return terms
 
     @staticmethod
     def _rank_documents(documents, terms, fields, limit):
         ranked = []
 
         for document in documents:
-            searchable = " ".join(
+            searchable = MemoryService._normalize_search_text(" ".join(
                 str(document.get(field, ""))
                 for field in fields
-            ).lower()
+            ))
 
             score = sum(
                 1 for term in terms if term in searchable
@@ -260,26 +295,15 @@ class MemoryService:
         if not terms:
             return []
 
-        query = {
-            "guild_id": str(guild_id),
-            "$or": [
-                {
-                    field: {
-                        "$regex": re.escape(term),
-                        "$options": "i",
-                    }
-                }
-                for term in terms
-                for field in ("topic", "summary", "category")
-            ],
-        }
-
+        # Memory collections are intentionally small. Fetch only this guild's
+        # records, then rank in Python using normalized Arabic/English text so
+        # spelling variants and hamza/ta-marbuta differences do not hide memories.
         cursor = self.guild_memories.find(
-            query,
+            {"guild_id": str(guild_id)},
             {"_id": 0},
-        ).limit(30)
+        ).limit(100)
 
-        documents = await cursor.to_list(length=30)
+        documents = await cursor.to_list(length=100)
 
         sanitized_documents = []
         for document in documents:
@@ -563,27 +587,17 @@ class MemoryService:
         if not terms:
             return []
 
-        query = {
-            "guild_id": str(guild_id),
-            "user_id": str(user_id),
-            "$or": [
-                {
-                    field: {
-                        "$regex": re.escape(term),
-                        "$options": "i",
-                    }
-                }
-                for term in terms
-                for field in ("key", "value")
-            ],
-        }
-
+        # Keep the guild and member filters in MongoDB; rank only this
+        # member's own small memory set after normalizing Arabic/English text.
         cursor = self.user_memories.find(
-            query,
+            {
+                "guild_id": str(guild_id),
+                "user_id": str(user_id),
+            },
             {"_id": 0},
-        ).limit(30)
+        ).limit(100)
 
-        documents = await cursor.to_list(length=30)
+        documents = await cursor.to_list(length=100)
 
         sanitized_documents = []
         for document in documents:
