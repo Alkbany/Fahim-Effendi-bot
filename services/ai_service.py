@@ -627,12 +627,15 @@ class AIService:
                     if action == "play":
                         valid_args = (isinstance(query, str) and bool(query.strip()) and len(query.strip()) <= 500)
                     elif action == "loop":
-                        valid_args = mode in {"off", "song", "queue"}
+                        valid_args = isinstance(mode, str) and mode in {"off", "song", "queue"}
                     elif action == "volume":
                         valid_args = isinstance(level, int) and not isinstance(level, bool) and 0 <= level <= 100
 
                     if music_action_used:
-                        function_result = {"success": False, "message": "Only one music action may be executed per member message."}
+                        function_result = tool_state.get("music_action_result") or {
+                            "success": False,
+                            "message": "A music action was already attempted for this member message.",
+                        }
                     elif not music_action_callback:
                         function_result = {"success": False, "message": "Music controls are unavailable."}
                     elif not valid_args:
@@ -654,6 +657,7 @@ class AIService:
                         except Exception:
                             logger.exception("Music action execution failed.")
                             function_result = {"success": False, "message": "Music action failed unexpectedly."}
+                        tool_state["music_action_result"] = function_result
 
                 elif call.name == "remember_user_fact":
                     key = args.get("key")
@@ -1076,6 +1080,7 @@ required before returning to normal.
             "user_memory_saved": False,
             "guild_memory_saved": False,
             "music_action_used": False,
+            "music_action_result": None,
         }
 
         primary_model = GEMINI_MODEL
