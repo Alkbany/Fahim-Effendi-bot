@@ -1,136 +1,52 @@
-# GitHub Codespaces integration test plan
+# GitHub Codespaces test plan
 
-This is the hands-on verification stage before any 24/7 hosting decision. Automated unit tests are necessary, but they do not prove that Discord, Gemini, and MongoDB work together.
-
-## 1. Open the development environment
-
-1. Open the existing Codespace for this repository and pull the latest main branch.
-2. The music feature adds Docker-in-Docker to the development container. Rebuild the existing container once so the feature is installed; do not create a second Codespace.
-3. Wait for the post-create setup to install the pinned Python dependencies.
-4. In the Codespaces terminal, verify the interpreter, Docker Compose version, and Python dependencies:
-
-   ```bash
-   python --version
-   docker compose version
-   python -m pip check
-   ```
-
-   The Codespaces-only Compose override uses the Compose `!reset` tag, supported by Docker Compose 2.24.4 and newer.
-
-## 2. Add credentials privately
-
-Fahim needs these environment variables:
-
-- `DISCORD_TOKEN`
-- `GEMINI_API_KEY`
-- `MONGO_URI`
-
-The existing Codespaces secrets remain in place after rebuilding the container; do not re-enter or print their values. If a local `.env` file is used instead, keep it ignored and never commit it, paste it into a chat, or include it in screenshots or logs. Spotify client credentials are optional and are only needed to resolve Spotify links for music playback.
-
-Do not add secrets to `devcontainer.json`, source files, or GitHub Actions. If a credential is exposed, rotate it.
-
-## 3. Run automated tests first
-
-Run the same test command used by CI:
-
+## 1. Environment
+Open the repository in Codespaces. The devcontainer installs FFmpeg and the pinned Python dependencies. Verify:
 ```bash
-python -m unittest discover -s tests -v
-```
-
-Then run:
-
-```bash
+python --version
+ffmpeg -version
 python -m pip check
 ```
 
-Resolve every failure before starting the live bot.
+## 2. Secrets
+Configure `DISCORD_TOKEN`, `GEMINI_API_KEY`, and `MONGO_URI` as Codespaces secrets or in an ignored local `.env` file. Never print or commit secret values.
 
-## 4. Start Fahim in Codespaces
-
-The regular `docker-compose.yml` is retained for normal local/production networking. Codespaces has a separate override because its Docker bridge currently cannot reach the internet. The override puts both containers on the Docker host network, bypassing the broken bridge/NAT route, and points the bot at Lavalink through localhost.
-
-Start both services using the Codespaces-specific files:
-
+## 3. Automated tests
 ```bash
-docker compose -f docker-compose.yml -f docker-compose.codespaces.yml up -d --build
+python -m unittest discover -s tests -v
+python -m pip check
 ```
+Resolve failures before live testing.
 
-Check their startup logs:
-
+## 4. Start the bot
 ```bash
-docker compose -f docker-compose.yml -f docker-compose.codespaces.yml logs --tail=100 lavalink fahim
+python main.py
 ```
+Confirm MongoDB connects, Discord becomes ready, and slash commands synchronize.
 
-Confirm that:
-- Lavalink reports that it is ready to accept connections;
-- Fahim connects to MongoDB and initializes its indexes;
-- Fahim connects to Discord and becomes ready;
-- slash commands synchronize without errors;
-- the music log reports a successful Lavalink connection.
+## 5. Discord checks
+- [ ] Normal message in the configured Fahim channel.
+- [ ] Mention Fahim in another channel.
+- [ ] Use `/ask` and `/reset`.
+- [ ] Reply to an older Fahim message.
+- [ ] Verify personal memories remain private to each member.
+- [ ] Verify shared memories remain scoped to their server.
+- [ ] Ask a question requiring current information and verify search is used.
+- [ ] Send long and rapid messages; check splitting and per-member turn ordering.
+- [ ] Check logs for exceptions and ensure no credentials are logged.
 
-To follow logs live:
+## 6. Music checks
+Use a test server and join a voice channel:
+- [ ] `/play` with a YouTube URL.
+- [ ] `/play` with a search phrase.
+- [ ] Queue a playlist and verify the 100-track cap.
+- [ ] `/pause`, `/resume`, `/skip`, and `/stop`.
+- [ ] `/queue`, `/nowplaying`, and `/volume`.
+- [ ] `/shuffle`, `/loop`, and `/leave`.
+- [ ] Natural Egyptian-Arabic play and control phrases.
+- [ ] Confirm music playback does not invoke Gemini unnecessarily.
 
-```bash
-docker compose -f docker-compose.yml -f docker-compose.codespaces.yml logs -f fahim lavalink
-```
+Spotify URL resolution is not currently supported by the native player.
 
-To stop the Codespaces stack:
-
-```bash
-docker compose -f docker-compose.yml -f docker-compose.codespaces.yml down
-```
-
-Keep the Codespace running while testing. Codespaces can stop or time out; this is a development environment, not the final 24/7 host.
-
-## 5. Discord end-to-end checklist
-
-Use a private test server and a test channel. Avoid testing with sensitive personal information.
-
-- [ ] Send a normal message in the configured Fahim channel; verify one reply.
-- [ ] Mention Fahim in another channel; verify he responds.
-- [ ] Call `/ask`; verify the response edits the initial acknowledgement and handles long responses.
-- [ ] Reply to an older Fahim message; verify the referenced message is included in context.
-- [ ] Reply to an ordinary member's message; verify Fahim does not respond unless another trigger applies.
-- [ ] Use `/reset`; verify only that member's conversation history is cleared.
-- [ ] Have two test members converse; verify their histories and personal memories remain separate.
-- [ ] Save a personal fact for one test member; verify it is not recalled for another member.
-- [ ] Save a shared server fact; verify it is available in the same server but not another server.
-- [ ] Ask a question requiring current information; verify the search path runs and the answer distinguishes sourced facts from uncertainty.
-- [ ] Send a long prompt; verify message splitting stays within Discord limits.
-- [ ] Send two messages quickly from the same member; verify conversation turns do not interleave.
-- [ ] Send messages from two different members; verify one slow response does not block the other member.
-- [ ] Check logs for exceptions and ensure no API keys, bot tokens, or MongoDB credentials appear.
-
-## 6. Music end-to-end checklist
-
-With the Codespaces stack running:
-
-- [ ] Join a voice channel and run `/play` with a YouTube URL.
-- [ ] Run `/play` with a search phrase; verify the track is queued and starts.
-- [ ] Test `/pause`, `/resume`, and `/skip`.
-- [ ] Test `/queue`, `/nowplaying`, and `/volume`.
-- [ ] Test `/shuffle`, `/loop`, `/stop`, and `/leave`.
-- [ ] If Spotify credentials are configured, test one Spotify track URL and one playlist URL.
-- [ ] Stop Lavalink and verify text chat still works while music commands report the node as offline.
-
-Music playback is independent of Gemini and should not generate Gemini API requests.
-
-## 7. Failure and recovery checks
-
-Perform these only in the test server:
-
-- [ ] Temporarily stop and restart the bot; verify it reconnects and retains database-backed history.
-- [ ] Stop MongoDB access or use a deliberately invalid test connection string in a separate test run; verify startup fails clearly without exposing the URI.
-- [ ] Test Gemini failure handling with a safe invalid test key or controlled unavailable-model condition; verify the fallback/error path behaves as expected.
-- [ ] Verify a restart does not create duplicate bot instances or duplicate replies.
-
-## 8. Completion gate
-
-Do not call the bot production-ready until:
-- all unit tests pass in Codespaces;
-- all applicable live Discord integration checks pass;
-- Gemini and MongoDB work together with the real configuration;
-- no secrets appear in repository history or logs;
-- any discovered defects are fixed and retested.
-
-Only after this gate should the project move to a separate 24/7 hosting decision.
+## 7. Completion gate
+Do not call the bot production-ready until unit tests pass, live Discord/Gemini/MongoDB integration checks pass, music playback is verified in a voice channel, and no credentials appear in repository files or logs.

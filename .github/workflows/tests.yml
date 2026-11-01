@@ -5,6 +5,7 @@ on:
     branches:
       - main
       - feature/deterministic-relationship-gate
+      - chore/repository-cleanup
   pull_request:
     branches:
       - main
@@ -41,18 +42,3 @@ jobs:
           PYTHONPATH: .
         run: python -m unittest discover -s tests -v
 
-  container-build:
-    name: Docker image build and Compose validation
-    runs-on: ubuntu-latest
-    timeout-minutes: 10
-    steps:
-      - name: Check out repository
-        uses: actions/checkout@v7
-
-      - name: Validate Docker Compose configuration
-        run: |
-          printf 'DISCORD_TOKEN=test\nGEMINI_API_KEY=test\nMONGO_URI=mongodb://localhost:27017\n' > .env
-          docker compose config --quiet
-
-      - name: Build container image
-        run: docker build --tag fahim-effendi-bot:test .
