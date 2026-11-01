@@ -132,9 +132,9 @@ async def handle_natural_music_request(bot, message, text):
         return None
 
     import re
-    normalized = re.sub(r"\\s+", " ", (text or "").strip())
-    normalized = re.sub(r"^يا\\s+فهيم\\s+[اأإ]?فندي[،,: ]*", "", normalized)
-    normalized = re.sub(r"^<@!?\\d+>[،,: ]*", "", normalized)
+    normalized = re.sub(r"\s+", " ", (text or "").strip())
+    normalized = re.sub(r"^يا\s+فهيم\s+[اأإ]?فندي[،,: ]*", "", normalized)
+    normalized = re.sub(r"^<@!?\d+>[،,: ]*", "", normalized)
 
     player = message.guild.voice_client
     voice_state = getattr(message.author, "voice", None)
@@ -142,7 +142,7 @@ async def handle_natural_music_request(bot, message, text):
 
     # Playback requests: "شغلي ..." / "شغلنا ..." / "شغّل ..."
     play_match = re.match(
-        r"^(?:ممكن\\s+)?(?:شغل(?:ي|نا)?|شغّل(?:ي|نا)?|شغّل لنا|شغل لنا)\\s+(.+)$",
+        r"^(?:ممكن\s+)?(?:شغل(?:ي|نا)?|شغّل(?:ي|نا)?|شغّل لنا|شغل لنا)\s+(.+)$",
         normalized,
         flags=re.IGNORECASE,
     )
