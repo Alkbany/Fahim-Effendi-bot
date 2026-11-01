@@ -4,7 +4,7 @@ from unittest.mock import AsyncMock, Mock
 
 from pymongo.errors import DuplicateKeyError
 
-from config import MAX_MEMORY_CONTEXT_CHARS
+from config import MAX_HISTORY_MESSAGES, MAX_MEMORY_CONTEXT_CHARS
 from services.ai_service import AIService
 from services.memory_service import MemoryService
 
@@ -196,6 +196,12 @@ class MemoryServiceTests(unittest.IsolatedAsyncioTestCase):
         self.assertTrue(first.kwargs["upsert"])
         self.assertFalse(second.kwargs["upsert"])
         self.assertEqual(first.args[0], second.args[0])
+        update = first.args[1]
+        self.assertEqual(update["$push"]["history"]["$slice"], -MAX_HISTORY_MESSAGES)
+        self.assertEqual(
+            [item["role"] for item in update["$push"]["history"]["$each"]],
+            ["user", "model"],
+        )
 
     async def test_save_guild_memory_retries_duplicate_key_first_write_race(self):
         collection = SimpleNamespace(
