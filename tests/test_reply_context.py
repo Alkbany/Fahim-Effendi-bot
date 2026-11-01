@@ -1,6 +1,6 @@
 import unittest
 
-from services.context_service import build_reply_context
+from services.context_service import build_history_question, build_reply_context
 
 
 class ReplyContextTests(unittest.TestCase):
@@ -35,6 +35,22 @@ class ReplyContextTests(unittest.TestCase):
             "[CURRENT MEMBER MESSAGE]\n"
             "تمام",
         )
+
+
+    def test_history_question_excludes_referenced_message(self):
+        self.assertEqual(
+            build_history_question("  طب أنهي واحدة؟  ", has_reference=True),
+            "طب أنهي واحدة؟",
+        )
+
+    def test_empty_reply_has_neutral_history_text(self):
+        self.assertEqual(
+            build_history_question("", has_reference=True),
+            "كمّل كلامك عن الرسالة دي.",
+        )
+
+    def test_empty_non_reply_is_not_persisted_as_a_question(self):
+        self.assertEqual(build_history_question("", has_reference=False), "")
 
 
 if __name__ == "__main__":

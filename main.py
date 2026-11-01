@@ -8,7 +8,7 @@ from contextlib import asynccontextmanager
 
 from config import DISCORD_TOKEN, FAHIM_CHANNEL_ID, validate_config
 from services.ai_service import AIService
-from services.context_service import build_reply_context
+from services.context_service import build_history_question, build_reply_context
 from services.database import DatabaseService
 from services.memory_service import MemoryService
 from services.search_service import SearchService
@@ -258,6 +258,12 @@ class FahimBot(commands.Bot):
         if not question and message.reference:
             question = content.strip()
 
+        # Persist only member-authored text; referenced bot text is prompt-only.
+        history_question = build_history_question(
+            question,
+            has_reference=message.reference is not None,
+        )
+
         # A reply to Fahim must carry the exact message being replied to.
         # Recent chat history alone is insufficient when the target is older.
         if (
@@ -326,7 +332,7 @@ class FahimBot(commands.Bot):
                     await self.memory_service.save_turn(
                         guild_id,
                         user_id,
-                        question,
+                        history_question,
                         answer,
                     )
 
