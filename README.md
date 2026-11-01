@@ -12,14 +12,14 @@ An Egyptian Arabic Discord companion powered by Gemini, with MongoDB-backed conv
 - Saves durable personal facts privately per member and durable agency facts as shared server memories.
 - Keeps relationship state scoped to the specific member and server.
 - Uses web search for current information and requires a search before answering detected market-price questions.
-- Retries temporary Gemini API failures with a fallback model without repeating searches or relationship side effects.
+- Retries temporary Gemini API failures with a fallback model without repeating searches or relationship side effects.\n- Plays YouTube tracks and playlists through an independent Lavalink music service; Spotify links are supported through the optional LavaSrc integration.
 
 ## Requirements
 
 - Python 3.12 or newer.
 - A Discord application and bot token.
 - A Gemini API key.
-- A MongoDB database (MongoDB Atlas is suitable).
+- A MongoDB database (MongoDB Atlas is suitable).\n- Docker for the separate Lavalink music service.
 
 ## Discord application setup
 
@@ -73,7 +73,7 @@ The application loads `.env` automatically. Never commit `.env` or share its con
 python main.py
 ```
 
-On startup, Fahim validates configuration, connects to MongoDB, verifies the required indexes, initializes the AI and search services, and syncs Discord slash commands.
+On startup, Fahim validates configuration, connects to MongoDB, verifies the required indexes, initializes the AI and search services, attempts to connect to the independent Lavalink music node, and syncs Discord slash commands. If Lavalink is offline, chat continues normally and only music commands are unavailable.
 
 ## GitHub Codespaces testing
 
@@ -129,6 +129,6 @@ Do not put API keys or tokens in source code, screenshots, logs, or deployment f
 - `services/ai_service.py` — Gemini requests, tool handling, fallback, and response assembly.
 - `services/search_service.py` — asynchronous web-search adapter.
 - `services/database.py` — MongoDB connection and index initialization.
-- `services/memory_service.py` — conversation, personal, guild, and relationship memory operations.
+- `services/memory_service.py` — conversation, personal, guild, and relationship memory operations.\n- `cogs/music.py` — independent YouTube / Spotify music commands.\n- `lavalink/application.yml` — Lavalink server and source-plugin configuration.
 - `prompts/fahim_personality.txt` — Fahim's personality and conversation rules.
 - `tests/` — automated unit tests.
