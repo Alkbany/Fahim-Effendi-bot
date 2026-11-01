@@ -7,12 +7,15 @@ This is the hands-on verification stage before any 24/7 hosting decision. Automa
 1. Open the existing Codespace for this repository and pull the latest main branch.
 2. The music feature adds Docker-in-Docker to the development container. Rebuild the existing container once so the feature is installed; do not create a second Codespace.
 3. Wait for the post-create setup to install the pinned Python dependencies.
-4. In the Codespaces terminal, verify the interpreter and dependencies:
+4. In the Codespaces terminal, verify the interpreter, Docker Compose version, and Python dependencies:
 
    ```bash
    python --version
+   docker compose version
    python -m pip check
    ```
+
+   The Codespaces-only Compose override uses the Compose `!reset` tag, supported by Docker Compose 2.24.4 and newer.
 
 ## 2. Add credentials privately
 
@@ -42,17 +45,40 @@ python -m pip check
 
 Resolve every failure before starting the live bot.
 
-## 4. Start Fahim
+## 4. Start Fahim in Codespaces
+
+The regular `docker-compose.yml` is retained for normal local/production networking. Codespaces has a separate override because its Docker bridge currently cannot reach the internet. The override puts both containers on the Docker host network, bypassing the broken bridge/NAT route, and points the bot at Lavalink through localhost.
+
+Start both services using the Codespaces-specific files:
 
 ```bash
-python main.py
+docker compose -f docker-compose.yml -f docker-compose.codespaces.yml up -d --build
 ```
 
-Confirm in the terminal that:
-- configuration validation succeeds;
-- MongoDB connects and required indexes initialize;
-- Discord connects and the bot becomes ready;
-- slash commands synchronize without errors.
+Check their startup logs:
+
+```bash
+docker compose -f docker-compose.yml -f docker-compose.codespaces.yml logs --tail=100 lavalink fahim
+```
+
+Confirm that:
+- Lavalink reports that it is ready to accept connections;
+- Fahim connects to MongoDB and initializes its indexes;
+- Fahim connects to Discord and becomes ready;
+- slash commands synchronize without errors;
+- the music log reports a successful Lavalink connection.
+
+To follow logs live:
+
+```bash
+docker compose -f docker-compose.yml -f docker-compose.codespaces.yml logs -f fahim lavalink
+```
+
+To stop the Codespaces stack:
+
+```bash
+docker compose -f docker-compose.yml -f docker-compose.codespaces.yml down
+```
 
 Keep the Codespace running while testing. Codespaces can stop or time out; this is a development environment, not the final 24/7 host.
 
@@ -77,14 +103,7 @@ Use a private test server and a test channel. Avoid testing with sensitive perso
 
 ## 6. Music end-to-end checklist
 
-Start the independent Lavalink node from the existing Codespace:
-
-```bash
-docker compose up -d lavalink
-docker compose logs -f lavalink
-```
-
-Then run Fahim with `python main.py` and confirm the Lavalink node becomes ready.
+With the Codespaces stack running:
 
 - [ ] Join a voice channel and run `/play` with a YouTube URL.
 - [ ] Run `/play` with a search phrase; verify the track is queued and starts.
