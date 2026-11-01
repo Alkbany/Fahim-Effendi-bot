@@ -1042,6 +1042,14 @@ required before returning to normal.
             if source not in sources:
                 sources.append(source)
 
+        # Never let the model invent a current market price when it failed to
+        # cite a source from the mandatory live search.
+        if self.is_current_price_question(question) and not sources:
+            return (
+                "دورت على السعر الحالي، لكن النتائج المتاحة ما وفرتش مصدرًا "
+                "واضحًا أقدر أؤكد منه رقمًا. مش هخمن سعر من عندي."
+            )
+
         if sources:
             answer += "\n\n**المصادر:**\n"
             answer += "\n".join(sources)
