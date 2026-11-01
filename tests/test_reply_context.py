@@ -37,9 +37,6 @@ class ReplyContextTests(unittest.TestCase):
         )
 
 
-if __name__ == "__main__":
-    unittest.main()
-
     def test_history_question_excludes_referenced_message(self):
         self.assertEqual(
             build_history_question("  طب أنهي واحدة؟  ", has_reference=True),
@@ -54,3 +51,7 @@ if __name__ == "__main__":
 
     def test_empty_non_reply_is_not_persisted_as_a_question(self):
         self.assertEqual(build_history_question("", has_reference=False), "")
+
+
+if __name__ == "__main__":
+    unittest.main()
