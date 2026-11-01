@@ -472,14 +472,12 @@ class MusicCog(commands.Cog):
         await interaction.response.send_message(f"وضع التكرار: **{labels[mode]}**.")
 
     @commands.Cog.listener()
-    async def on_wavelink_track_start(self, payload: wavelink.TrackStartEventPayload):
-        track = payload.track
-        if track is not None:
-            self._fallback_tracks.pop(track.identifier, None)
-
-    @commands.Cog.listener()
     async def on_wavelink_track_end(self, payload: wavelink.TrackEndEventPayload):
         player = payload.player
+        track = payload.track
+        if track is not None and payload.reason in {"finished", "stopped"}:
+            self._fallback_tracks.pop(track.identifier, None)
+
         if player is None or payload.reason not in {"finished", "stopped"}:
             return
 
