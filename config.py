@@ -56,12 +56,7 @@ MAX_GUILD_MEMORIES = 3
 MAX_MEMORY_TEXT_CHARS = 1000
 MAX_MEMORY_CONTEXT_CHARS = 4000
 
-# Independent Lavalink music service
-LAVALINK_URI = os.getenv("LAVALINK_URI", "http://127.0.0.1:2333")
-LAVALINK_PASSWORD = os.getenv(
-    "LAVALINK_PASSWORD",
-    "fahim-local-node-password",
-)
+# Music playlist safety limit
 MAX_PLAYLIST_TRACKS = 100
 
 # Dedicated channel for Fahim
