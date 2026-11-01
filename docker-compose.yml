@@ -3,6 +3,9 @@ services:
     image: ghcr.io/lavalink-devs/lavalink:4
     container_name: fahim-lavalink
     restart: unless-stopped
+    dns:
+      - 1.1.1.1
+      - 8.8.8.8
     environment:
       LAVALINK_PASSWORD: ${LAVALINK_PASSWORD:-fahim-local-node-password}
       SPOTIFY_CLIENT_ID: ${SPOTIFY_CLIENT_ID:-}
@@ -18,6 +21,9 @@ services:
     container_name: fahim-effendi-bot
     restart: unless-stopped
     init: true
+    dns:
+      - 1.1.1.1
+      - 8.8.8.8
     environment:
       DISCORD_TOKEN: ${DISCORD_TOKEN:-}
       GEMINI_API_KEY: ${GEMINI_API_KEY:-}
