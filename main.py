@@ -501,6 +501,15 @@ class FahimBot(commands.Bot):
                         ]
                         personal_memories.append(relationship_memory)
 
+                    music_cog = self.get_cog("MusicCog")
+
+                    async def execute_music_action(action, query=None, mode=None, level=None):
+                        if music_cog is None:
+                            return {"success": False, "message": "نظام الموسيقى مش متاح حاليًا."}
+                        return await music_cog.execute_ai_action(
+                            message, action, query=query, mode=mode, level=level
+                        )
+
                     answer = await self.ai_service.generate_response(
                         question,
                         history=history,
@@ -508,6 +517,7 @@ class FahimBot(commands.Bot):
                             "personal": personal_memories,
                             "shared": shared_memories,
                         },
+                        music_action_callback=execute_music_action,
                         relationship_event_callback=make_relationship_event_callback(
                             self.memory_service, guild_id, user_id
                         ),

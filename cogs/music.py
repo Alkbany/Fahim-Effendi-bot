@@ -78,6 +78,132 @@ class MusicCog(commands.Cog):
         prefix = f"{index}. " if index is not None else ""
         return f"{prefix}**{track.title}** — {track.author}"
 
+    async def execute_ai_action(self, message, action, query=None, mode=None, level=None):
+        """Execute one validated natural-language music action for a Discord member."""
+        if not getattr(self.bot, "music_ready", False):
+            return {"success": False, "message": "مشغل الموسيقى مش متصل حاليًا. المحادثة العادية ما زالت شغالة."}
+
+        guild = getattr(message, "guild", None)
+        if guild is None:
+            return {"success": False, "message": "أوامر الموسيقى متاحة داخل السيرفر فقط."}
+
+        voice_state = getattr(message.author, "voice", None)
+        voice_channel = getattr(voice_state, "channel", None)
+        if voice_channel is None:
+            return {"success": False, "message": "لازم العضو يدخل قناة صوتية الأول."}
+
+        player = guild.voice_client
+        if action == "play":
+            if not isinstance(query, str) or not query.strip() or len(query.strip()) > 500:
+                return {"success": False, "message": "اسم الأغنية أو الرابط غير صالح."}
+            if player is None:
+                try:
+                    player = await voice_channel.connect(cls=wavelink.Player)
+                except Exception:
+                    logger.exception("AI music action could not connect to voice.")
+                    return {"success": False, "message": "فهيم معرفش يدخل القناة الصوتية. راجعوا صلاحياته."}
+            elif not isinstance(player, wavelink.Player) or player.channel.id != voice_channel.id:
+                return {"success": False, "message": "فهيم موجود في قناة صوتية تانية؛ لازم تكونوا في نفس القناة."}
+
+            player.autoplay = wavelink.AutoPlayMode.disabled
+            try:
+                search_query = query.strip()
+                if "open.spotify.com/" in search_query.lower():
+                    results = await wavelink.Playable.search(search_query)
+                else:
+                    results = await wavelink.Playable.search(search_query, source="ytsearch")
+                if not results:
+                    return {"success": False, "message": "ملقتش نتيجة قابلة للتشغيل للطلب ده."}
+                if isinstance(results, wavelink.Playlist):
+                    tracks = results.tracks[:MAX_PLAYLIST_TRACKS]
+                    playlist_name = results.name or "قائمة الأغاني"
+                else:
+                    tracks = [results[0]]
+                    playlist_name = None
+                if not tracks:
+                    return {"success": False, "message": "القائمة دي مفيهاش أغاني قابلة للتشغيل."}
+
+                async with self._lock_for(guild.id):
+                    added = await player.queue.put_wait(tracks)
+                    started = player.current is None
+                    if started:
+                        await self._start_next(player)
+                if playlist_name:
+                    message_text = f"اتضافت {added} أغنية من قائمة {playlist_name} للانتظار."
+                else:
+                    message_text = f"اتضافت {tracks[0].title} للانتظار."
+                if started:
+                    message_text += " وبدأ التشغيل."
+                return {"success": True, "message": message_text, "track": tracks[0].title, "started": started, "queued": added}
+            except Exception:
+                logger.exception("AI music playback action failed.")
+                return {"success": False, "message": "حصلت مشكلة أثناء تحميل الأغنية أو إضافتها للانتظار."}
+
+        if player is None or not isinstance(player, wavelink.Player):
+            return {"success": False, "message": "مفيش مشغل موسيقى شغال حاليًا."}
+        if player.channel.id != voice_channel.id:
+            return {"success": False, "message": "لازم العضو يكون في نفس القناة الصوتية اللي فهيم موجود فيها."}
+
+        try:
+            if action == "pause":
+                if player.current is None or player.paused:
+                    return {"success": False, "message": "مفيش أغنية شغالة أوقفها مؤقتًا."}
+                await player.pause(True)
+                return {"success": True, "message": "الأغنية اتوقفت مؤقتًا."}
+            if action == "resume":
+                if not player.paused:
+                    return {"success": False, "message": "الأغنية مش متوقفة مؤقتًا."}
+                await player.pause(False)
+                return {"success": True, "message": "التشغيل رجع."}
+            if action == "skip":
+                if player.current is None:
+                    return {"success": False, "message": "مفيش أغنية شغالة عشان نتخطاها."}
+                skipped = await player.skip()
+                return {"success": True, "message": "تم تخطي الأغنية.", "track": getattr(skipped, "title", None)}
+            if action == "stop":
+                player.queue.clear()
+                if player.current is not None:
+                    await player.stop()
+                return {"success": True, "message": "التشغيل اتوقف والانتظار اتمسح."}
+            if action == "leave":
+                player.queue.clear()
+                await player.disconnect()
+                return {"success": True, "message": "فهيم خرج من القناة الصوتية."}
+            if action == "nowplaying":
+                track = player.current
+                if track is None:
+                    return {"success": False, "message": "مفيش أغنية شغالة حاليًا."}
+                return {"success": True, "message": f"الشغالة حاليًا: {track.title} — {track.author} ({format_duration(track.length, track.is_stream)}).", "track": track.title, "artist": track.author}
+            if action == "queue":
+                upcoming = list(player.queue)[:10]
+                current = player.current.title if player.current else None
+                if current is None and not upcoming:
+                    return {"success": True, "message": "قائمة الانتظار فاضية.", "tracks": []}
+                lines = ([f"شغالة حاليًا: {current}"] if current else [])
+                lines.extend(f"{index}. {track.title} — {track.author}" for index, track in enumerate(upcoming, 1))
+                return {"success": True, "message": "\n".join(lines), "tracks": [track.title for track in upcoming]}
+            if action == "shuffle":
+                if player.queue.count < 2:
+                    return {"success": False, "message": "محتاج أغنيتين على الأقل في الانتظار عشان أخلط ترتيبهم."}
+                player.queue.shuffle()
+                return {"success": True, "message": "ترتيب الأغاني اللي جاية اتخلط."}
+            if action == "loop":
+                modes = {"off": wavelink.QueueMode.normal, "song": wavelink.QueueMode.loop, "queue": wavelink.QueueMode.loop_all}
+                if mode not in modes:
+                    return {"success": False, "message": "وضع التكرار المطلوب مش واضح."}
+                player.queue.mode = modes[mode]
+                labels = {"off": "اتقفل", "song": "تكرار الأغنية", "queue": "تكرار القائمة"}
+                return {"success": True, "message": f"وضع التكرار: {labels[mode]}."}
+            if action == "volume":
+                if not isinstance(level, int) or isinstance(level, bool) or not 0 <= level <= 100:
+                    return {"success": False, "message": "مستوى الصوت لازم يكون رقم من صفر لمية."}
+                await player.set_volume(level)
+                return {"success": True, "message": f"مستوى الصوت بقى {level}%.", "level": level}
+            return {"success": False, "message": "أمر الموسيقى غير معروف."}
+        except Exception:
+            logger.exception("AI music control action failed | action=%s", action)
+            return {"success": False, "message": "حصل خطأ أثناء تنفيذ أمر الموسيقى."}
+
     @app_commands.command(name="play", description="Play a song or add a link to the music queue")
     @app_commands.describe(query="Song name or a YouTube / Spotify link")
     async def play(self, interaction: discord.Interaction, query: str):

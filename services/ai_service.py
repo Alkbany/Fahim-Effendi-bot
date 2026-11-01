@@ -239,6 +239,37 @@ class AIService:
             ),
         ]
 
+    def get_music_tool(self):
+        return types.Tool(
+            function_declarations=[
+                types.FunctionDeclaration(
+                    name="music_action",
+                    description=(
+                        "Execute one explicit music-player action requested by the current "
+                        "Discord member. Use only when the member clearly intends an action "
+                        "now, not when merely discussing, recommending, remembering, or "
+                        "hypothetically mentioning music. For play, provide the exact song, "
+                        "artist, playlist, or a clearly requested mood/genre as query. "
+                        "If the requested song cannot be identified from the message and "
+                        "relevant conversation context, ask one clarification instead."
+                    ),
+                    parameters_json_schema={
+                        "type": "OBJECT",
+                        "properties": {
+                            "action": {"type": "STRING", "enum": [
+                                "play", "pause", "resume", "skip", "stop", "leave",
+                                "nowplaying", "queue", "shuffle", "loop", "volume",
+                            ], "description": "The requested player action."},
+                            "query": {"type": "STRING", "description": "Required for play: exact track, artist, playlist URL, or explicitly requested genre/mood. Do not invent a title."},
+                            "mode": {"type": "STRING", "enum": ["off", "song", "queue"], "description": "Required for loop: off, song, or queue."},
+                            "level": {"type": "INTEGER", "description": "Required for volume: integer from 0 to 100."},
+                        },
+                        "required": ["action"],
+                    },
+                )
+            ]
+        )
+
     @staticmethod
     def is_emergency_or_safety_request(question):
         if not isinstance(question, str):
@@ -395,6 +426,7 @@ class AIService:
         initial_search_sources=None,
         tool_state=None,
         memory_event_callbacks=None,
+        music_action_callback=None,
     ):
         tool_state = tool_state if isinstance(tool_state, dict) else {}
         if "search_sources" not in tool_state:
@@ -406,6 +438,7 @@ class AIService:
         )
         user_memory_saved = tool_state.setdefault("user_memory_saved", False)
         guild_memory_saved = tool_state.setdefault("guild_memory_saved", False)
+        music_action_used = tool_state.setdefault("music_action_used", False)
 
         available_tools = []
         if self.search_service:
@@ -414,6 +447,8 @@ class AIService:
             available_tools.append(self.get_relationship_tool())
         if memory_event_callbacks:
             available_tools.extend(self.get_memory_tools())
+        if music_action_callback:
+            available_tools.append(self.get_music_tool())
 
         chat = self.client.chats.create(
             model=model,
@@ -462,6 +497,7 @@ class AIService:
                         "record_relationship_event",
                         "remember_user_fact",
                         "remember_guild_fact",
+                        "music_action",
                     }:
                         function_calls.append(call)
 
@@ -576,6 +612,52 @@ class AIService:
                                 "success": False,
                                 "message": "Could not save relationship event.",
                             }
+
+                elif call.name == "music_action":
+                    action = args.get("action")
+                    query = args.get("query")
+                    mode = args.get("mode")
+                    level = args.get("level")
+                    valid_actions = {
+                        "play", "pause", "resume", "skip", "stop", "leave",
+                        "nowplaying", "queue", "shuffle", "loop", "volume",
+                    }
+                    valid_action = isinstance(action, str) and action in valid_actions
+                    valid_args = valid_action
+                    if action == "play":
+                        valid_args = (isinstance(query, str) and bool(query.strip()) and len(query.strip()) <= 500)
+                    elif action == "loop":
+                        valid_args = isinstance(mode, str) and mode in {"off", "song", "queue"}
+                    elif action == "volume":
+                        valid_args = isinstance(level, int) and not isinstance(level, bool) and 0 <= level <= 100
+
+                    if music_action_used:
+                        function_result = tool_state.get("music_action_result") or {
+                            "success": False,
+                            "message": "A music action was already attempted for this member message.",
+                        }
+                    elif not music_action_callback:
+                        function_result = {"success": False, "message": "Music controls are unavailable."}
+                    elif not valid_args:
+                        function_result = {"success": False, "message": "Invalid music action or arguments. Ask the member to clarify instead of guessing."}
+                    else:
+                        music_action_used = True
+                        tool_state["music_action_used"] = True
+                        try:
+                            callback_result = await music_action_callback(
+                                action,
+                                query.strip() if isinstance(query, str) else None,
+                                mode,
+                                level,
+                            )
+                            function_result = callback_result if isinstance(callback_result, dict) else {
+                                "success": False,
+                                "message": "Music action returned an invalid result.",
+                            }
+                        except Exception:
+                            logger.exception("Music action execution failed.")
+                            function_result = {"success": False, "message": "Music action failed unexpectedly."}
+                        tool_state["music_action_result"] = function_result
 
                 elif call.name == "remember_user_fact":
                     key = args.get("key")
@@ -796,6 +878,7 @@ class AIService:
         memories=None,
         relationship_event_callback=None,
         memory_event_callbacks=None,
+        music_action_callback=None,
     ):
         memories = memories or {}
         relationship_state = self.get_relationship_state(memories)
@@ -838,6 +921,23 @@ class AIService:
 - Save a fact only when the member explicitly asks you to remember it or its lasting future value is clear.
 - Use a stable key/topic so later updates replace the existing fact instead of creating duplicates.
 - Never claim a fact was saved unless the tool reports success.
+"""
+
+        if music_action_callback:
+            system_instruction += """
+
+[NATURAL MUSIC CONTROL - STRICT ACTION POLICY]
+You have a music_action tool connected to the real Discord player.
+- Call it only when the member clearly asks Fahim to perform a music/player action now.
+- Understand natural Egyptian Arabic, colloquial Arabic, typos, indirect phrasing, and English; do not require fixed command wording.
+- Clear examples: asking to hear a named song, asking for something calm/upbeat to be played, asking to pause/resume/skip/stop, asking what is playing, asking to show the queue, shuffle, change volume, or change repeat mode.
+- Do NOT call it for ordinary discussion, music recommendations, questions about artists, lyrics, opinions, memories, hypotheticals, or phrases that merely mention music.
+- A sentence such as "نفسي أسمع عمرو دياب" is an immediate play request only when directed to Fahim in this conversation; "بحب أسمع عمرو دياب" is not.
+- Resolve pronouns such as "شغلها تاني" only when the exact track is clearly established in the recent conversation. You are not given live player-state details in the prompt; never pretend you know the current track. If the reference is not clear from chat context, ask one short clarification.
+- Never invent a song title, artist, URL, playlist, or user intention. For a broad but explicit mood request, use the mood as the search query rather than inventing a specific song.
+- Do not call more than one music action for one member message.
+- The tool result is authoritative. If success is false, explain the failure honestly. If success is true, report only what the result confirms. Never claim playback or a control succeeded before the tool confirms it.
+- Do not reveal tool names or technical implementation to members. Keep Fahim's natural Egyptian voice.
 """
 
         if relationship_event_callback:
@@ -979,6 +1079,8 @@ required before returning to normal.
             "relationship_event_used": False,
             "user_memory_saved": False,
             "guild_memory_saved": False,
+            "music_action_used": False,
+            "music_action_result": None,
         }
 
         primary_model = GEMINI_MODEL
@@ -998,6 +1100,7 @@ required before returning to normal.
                 initial_search_sources=initial_search_sources,
                 tool_state=request_tool_state,
                 memory_event_callbacks=effective_memory_callbacks,
+                music_action_callback=music_action_callback,
             )
 
         except errors.APIError as error:
@@ -1026,6 +1129,7 @@ required before returning to normal.
                 initial_search_sources=initial_search_sources,
                 tool_state=request_tool_state,
                 memory_event_callbacks=effective_memory_callbacks,
+                music_action_callback=music_action_callback,
             )
 
         if (
