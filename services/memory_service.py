@@ -607,23 +607,44 @@ class MemoryService:
             )
             sanitized_documents.append(document)
 
-        relevant = self._rank_documents(
-            sanitized_documents, terms, ("key", "value"),
-            max(1, limit - 2),
-        ) if terms else []
-        selected = {item.get("key") for item in relevant}
-        recent = sorted(
-            sanitized_documents,
-            key=lambda item: getattr(item.get("updated_at"), "timestamp", lambda: 0)(),
+        def recency(item):
+            updated = item.get("updated_at")
+            return updated.timestamp() if hasattr(updated, "timestamp") else 0
+
+        # Core profile/project memories are always considered, even when a
+        # vague follow-up uses none of their original keywords.
+        pinned_keys = {
+            "profile", "user_profile", "preferences",
+            "communication_preferences", "ongoing_projects", "work_context",
+        }
+        pinned = sorted(
+            [item for item in sanitized_documents if item.get("key") in pinned_keys],
+            key=recency,
             reverse=True,
-        )
-        # Always include a small recent layer of durable personal facts so
-        # vague follow-ups still have useful context when wording differs.
-        for item in recent:
-            if len(relevant) >= limit:
+        )[:3]
+        selected = {item.get("key") for item in pinned}
+
+        relevant = self._rank_documents(
+            [item for item in sanitized_documents if item.get("key") not in selected],
+            terms,
+            ("key", "value"),
+            limit,
+        ) if terms and len(pinned) < limit else []
+        result = list(pinned)
+        for item in relevant:
+            if len(result) >= limit:
                 break
-            if item.get("key") in selected:
-                continue
-            relevant.append(item)
-            selected.add(item.get("key"))
-        return relevant
+            if item.get("key") not in selected:
+                result.append(item)
+                selected.add(item.get("key"))
+
+        # Keep a small recent layer for new facts and follow-ups whose wording
+        # differs from the saved memory.
+        recent = sorted(sanitized_documents, key=recency, reverse=True)
+        for item in recent:
+            if len(result) >= limit:
+                break
+            if item.get("key") not in selected:
+                result.append(item)
+                selected.add(item.get("key"))
+        return result
