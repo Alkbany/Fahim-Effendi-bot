@@ -3,12 +3,11 @@ import logging
 import re
 
 import discord
-import wavelink
 from discord.ext import commands
 from contextlib import asynccontextmanager
 
 from config import (
-    DISCORD_TOKEN, FAHIM_CHANNEL_ID, LAVALINK_PASSWORD, LAVALINK_URI, validate_config,
+    DISCORD_TOKEN, FAHIM_CHANNEL_ID, validate_config,
 )
 from services.ai_service import AIService
 from services.context_service import build_history_question, build_reply_context
@@ -124,6 +123,30 @@ def split_message(text, limit=1900):
 
 
 
+
+
+async def build_recent_channel_context(message, limit=12):
+    """Collect nearby public channel messages so Fahim follows member-to-member threads."""
+    try:
+        recent = [item async for item in message.channel.history(limit=limit + 1, before=message.created_at)]
+    except (discord.Forbidden, discord.HTTPException):
+        logger.warning("Could not read recent channel context.", exc_info=True)
+        return ""
+
+    recent.reverse()
+    lines = []
+    for item in recent:
+        content = (item.content or "").strip()
+        if not content:
+            continue
+        author = getattr(item.author, "display_name", None) or item.author.name
+        if item.author.bot and item.author.id != getattr(message.guild.me, "id", None):
+            continue
+        content = content[:500]
+        lines.append(f"{author}: {content}")
+
+    return "\\n".join(lines)[-4500:]
+
 async def handle_natural_music_request(bot, message, text):
     """Route explicit Egyptian-Arabic music requests to the native music cog."""
     if message.guild is None:
@@ -172,8 +195,6 @@ class FahimBot(commands.Bot):
         self.ai_service = None
         self.search_service = None
         self.music_ready = False
-        self.music_node = None
-        self.music_connect_task = None
         self.conversation_locks = KeyedLockPool()
 
     async def on_voice_state_update(self, member, before, after):
@@ -211,10 +232,6 @@ class FahimBot(commands.Bot):
         # Register the Lavalink/Wavelink music subsystem.
         await self.load_extension("cogs.music")
 
-        # Lavalink runs as a separate Java process (no Docker required).
-        # Keep music startup isolated so text chat still works if it is offline.
-        self.music_connect_task = asyncio.create_task(self.connect_music_node())
-
         # Register Discord slash commands
         synced = await self.tree.sync()
 
@@ -223,46 +240,7 @@ class FahimBot(commands.Bot):
             len(synced),
         )
 
-    async def connect_music_node(self):
-        """Connect Wavelink to the standalone local Lavalink process."""
-        for attempt in range(1, 21):
-            node = wavelink.Node(
-                identifier="fahim-music",
-                uri=LAVALINK_URI,
-                password=LAVALINK_PASSWORD,
-                retries=1,
-                client=self,
-                inactive_player_timeout=300,
-            )
-            try:
-                await wavelink.Pool.connect(nodes=[node], client=self)
-                self.music_node = node
-                logger.info("Connected to Lavalink node; waiting for node-ready event.")
-                return
-            except asyncio.CancelledError:
-                raise
-            except Exception:
-                self.music_ready = False
-                logger.warning(
-                    "Lavalink connection attempt %s/20 failed.",
-                    attempt,
-                    exc_info=True,
-                )
-                try:
-                    await wavelink.Pool.close()
-                except Exception:
-                    pass
-                if attempt < 20:
-                    await asyncio.sleep(3)
-
-        logger.error(
-            "Lavalink is unavailable. Fahim text chat remains online; music stays offline."
-        )
-
     async def close(self):
-        if self.music_connect_task and not self.music_connect_task.done():
-            self.music_connect_task.cancel()
-            await asyncio.gather(self.music_connect_task, return_exceptions=True)
         try:
             if self.ai_service:
                 await self.ai_service.client.aclose()
@@ -273,10 +251,6 @@ class FahimBot(commands.Bot):
                 await self.database_service.close()
         except Exception:
             logger.exception("Failed to close MongoDB connection.")
-        try:
-            await wavelink.Pool.close()
-        except Exception:
-            logger.exception("Failed to close Lavalink connection.")
         await super().close()
 
 
@@ -404,19 +378,6 @@ class FahimBot(commands.Bot):
                     )
 
 
-                    if (
-                        relationship_memory
-                        and relationship_memory.get("status") == "awaiting_apology"
-                        and not self.ai_service.is_apology_attempt(question)
-                        and not self.ai_service.is_emergency_or_safety_request(question)
-                    ):
-                        await message.reply(
-                            "بعد اللي حصل بينا، مش هقدر أتعامل معاك كأن مفيش حاجة. لما تبقى مستعد تعتذر بوضوح عن اللي صدر منك، نبقى نتكلم.",
-                            mention_author=False,
-                        )
-                        await self.process_commands(message)
-                        return
-
                     music_reply = await handle_natural_music_request(self, message, question)
                     if music_reply is not None:
                         await message.reply(music_reply, mention_author=False)
@@ -439,8 +400,10 @@ class FahimBot(commands.Bot):
                             message, action, query=query, mode=mode, level=level
                         )
 
+                    conversation_context = await build_recent_channel_context(message)
                     answer = await self.ai_service.generate_response(
                         question,
+                        conversation_context=conversation_context,
                         history=history,
                         memories={
                             "personal": personal_memories,
@@ -537,17 +500,6 @@ async def ask(
                 ),
             )
 
-
-            if (
-                relationship_memory
-                and relationship_memory.get("status") == "awaiting_apology"
-                and not bot.ai_service.is_apology_attempt(question)
-                and not bot.ai_service.is_emergency_or_safety_request(question)
-            ):
-                await interaction.edit_original_response(
-                    content="بعد اللي حصل بينا، مش هقدر أتعامل معاك كأن مفيش حاجة. لما تبقى مستعد تعتذر بوضوح عن اللي صدر منك، نبقى نتكلم."
-                )
-                return
 
             if relationship_memory:
                 personal_memories = [
