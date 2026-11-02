@@ -287,49 +287,49 @@ class MemoryService:
         return result.upserted_id
 
     async def get_relevant_guild_memories(
-        self, guild_id, question, limit=3
+        self, guild_id, question, limit=4
     ):
         terms = self._search_terms(question)
         limit = max(1, min(int(limit), MAX_GUILD_MEMORIES))
-
-        if not terms:
-            return []
-
-        # Memory collections are intentionally small. Fetch only this guild's
-        # records, then rank in Python using normalized Arabic/English text so
-        # spelling variants and hamza/ta-marbuta differences do not hide memories.
         cursor = self.guild_memories.find(
-            {"guild_id": str(guild_id)},
-            {"_id": 0},
-        ).limit(30)
-
-        documents = await cursor.to_list(length=30)
+            {"guild_id": str(guild_id)}, {"_id": 0}
+        ).limit(40)
+        documents = await cursor.to_list(length=40)
 
         sanitized_documents = []
         for document in documents:
             topic = document.get("topic", "")
-            selector = {
-                "guild_id": str(guild_id),
-                "topic": topic,
-            }
+            selector = {"guild_id": str(guild_id), "topic": topic}
             if contains_credential(topic):
                 await self.guild_memories.delete_one(selector)
                 continue
-
             document = await self._sanitize_legacy_fields(
-                self.guild_memories,
-                selector,
-                document,
-                ("summary",),
+                self.guild_memories, selector, document, ("summary",)
             )
             sanitized_documents.append(document)
 
-        return self._rank_documents(
+        relevant = self._rank_documents(
+            sanitized_documents, terms, ("topic", "summary", "category"),
+            max(1, limit - 2),
+        ) if terms else []
+        selected = {item.get("topic") for item in relevant}
+        recent = sorted(
             sanitized_documents,
-            terms,
-            ("topic", "summary", "category"),
-            limit,
+            key=lambda item: getattr(item.get("updated_at"), "timestamp", lambda: 0)(),
+            reverse=True,
         )
+        # Recent shared projects and decisions remain available even when the
+        # member refers to them using different words.
+        for item in recent:
+            if len(relevant) >= limit:
+                break
+            if item.get("topic") in selected:
+                continue
+            if item.get("category") not in {"project", "decision", "rule", "event", "community"}:
+                continue
+            relevant.append(item)
+            selected.add(item.get("topic"))
+        return relevant
 
     # -------------------------
     # Personal User Memory
@@ -579,25 +579,15 @@ class MemoryService:
         return document
 
     async def get_relevant_user_memories(
-        self, guild_id, user_id, question, limit=5
+        self, guild_id, user_id, question, limit=6
     ):
         terms = self._search_terms(question)
         limit = max(1, min(int(limit), MAX_PERSONAL_MEMORIES))
-
-        if not terms:
-            return []
-
-        # Keep the guild and member filters in MongoDB; rank only this
-        # member's own small memory set after normalizing Arabic/English text.
         cursor = self.user_memories.find(
-            {
-                "guild_id": str(guild_id),
-                "user_id": str(user_id),
-            },
+            {"guild_id": str(guild_id), "user_id": str(user_id)},
             {"_id": 0},
-        ).limit(30)
-
-        documents = await cursor.to_list(length=30)
+        ).limit(40)
+        documents = await cursor.to_list(length=40)
 
         sanitized_documents = []
         for document in documents:
@@ -607,21 +597,33 @@ class MemoryService:
                 "user_id": str(user_id),
                 "key": memory_key,
             }
+            if memory_key == "relationship_state":
+                continue
             if contains_credential(memory_key):
                 await self.user_memories.delete_one(selector)
                 continue
-
             document = await self._sanitize_legacy_fields(
-                self.user_memories,
-                selector,
-                document,
-                ("value",),
+                self.user_memories, selector, document, ("value",)
             )
             sanitized_documents.append(document)
 
-        return self._rank_documents(
+        relevant = self._rank_documents(
+            sanitized_documents, terms, ("key", "value"),
+            max(1, limit - 2),
+        ) if terms else []
+        selected = {item.get("key") for item in relevant}
+        recent = sorted(
             sanitized_documents,
-            terms,
-            ("key", "value"),
-            limit,
+            key=lambda item: getattr(item.get("updated_at"), "timestamp", lambda: 0)(),
+            reverse=True,
         )
+        # Always include a small recent layer of durable personal facts so
+        # vague follow-ups still have useful context when wording differs.
+        for item in recent:
+            if len(relevant) >= limit:
+                break
+            if item.get("key") in selected:
+                continue
+            relevant.append(item)
+            selected.add(item.get("key"))
+        return relevant
