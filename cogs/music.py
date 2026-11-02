@@ -20,6 +20,13 @@ def format_duration(seconds, is_stream=False):
     seconds=max(0,int(seconds or 0)); h,r=divmod(seconds,3600); m,s=divmod(r,60)
     return f"{h}:{m:02d}:{s:02d}" if h else f"{m}:{s:02d}"
 
+def shuffle_queue(queue):
+    """Shuffle upcoming tracks while preserving the deque used by the player."""
+    items = list(queue)
+    random.shuffle(items)
+    queue.clear()
+    queue.extend(items)
+
 @dataclass
 class Track:
     title:str
@@ -144,7 +151,7 @@ class MusicCog(commands.Cog):
                 if not p.current: return {"success":False,"message":"مفيش أغنية شغالة."}
                 msg=f"{p.current.title} — {p.current.uploader}"
             elif action=="queue": msg="\n".join([t.title for t in list(p.queue)[:10]]) or "الانتظار فاضي."
-            elif action=="shuffle": random.shuffle(p.queue); msg="خلطت ترتيب الانتظار."
+            elif action=="shuffle": shuffle_queue(p.queue); msg="خلطت ترتيب الانتظار."
             elif action=="loop":
                 if mode not in ("off","song","queue"): return {"success":False,"message":"وضع التكرار غير صحيح."}
                 p.loop=mode; msg=f"وضع التكرار: {mode}."
@@ -243,7 +250,7 @@ class MusicCog(commands.Cog):
     async def shuffle(self,i:discord.Interaction):
         p,e=await self.control_player(i)
         if e:await i.response.send_message(e,ephemeral=True);return
-        random.shuffle(p.queue);await i.response.send_message("خلطت الانتظار.")
+        shuffle_queue(p.queue);await i.response.send_message("خلطت الانتظار.")
 
     @app_commands.command(name="loop",description="Set repeat mode")
     async def loop(self,i:discord.Interaction,mode:Literal["off","song","queue"]):
