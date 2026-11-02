@@ -125,7 +125,7 @@ def split_message(text, limit=1900):
 
 
 
-async def build_recent_channel_context(message, limit=12):
+async def build_recent_channel_context(message, limit=18):
     """Collect nearby public channel messages so Fahim follows member-to-member threads."""
     try:
         recent = [item async for item in message.channel.history(limit=limit + 1, before=message.created_at)]
@@ -142,10 +142,22 @@ async def build_recent_channel_context(message, limit=12):
         author = getattr(item.author, "display_name", None) or item.author.name
         if item.author.bot and item.author.id != getattr(message.guild.me, "id", None):
             continue
-        content = content[:500]
-        lines.append(f"{author}: {content}")
 
-    return "\n".join(lines)[-4500:]
+        reply_context = ""
+        reference = getattr(item, "reference", None)
+        resolved = getattr(reference, "resolved", None) if reference else None
+        if isinstance(resolved, discord.Message):
+            replied_author = (
+                getattr(resolved.author, "display_name", None)
+                or resolved.author.name
+            )
+            replied_text = (resolved.content or "").strip()[:180]
+            reply_context = f" [بيرد على {replied_author}: {replied_text}]"
+
+        content = content[:600]
+        lines.append(f"{author}: {content}{reply_context}")
+
+    return "\n".join(lines)[-6500:]
 
 async def handle_natural_music_request(bot, message, text):
     """Route explicit Egyptian-Arabic music requests to the native music cog."""
