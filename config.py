@@ -57,7 +57,10 @@ MAX_MEMORY_TEXT_CHARS = 1000
 MAX_MEMORY_CONTEXT_CHARS = 4000
 
 
-# Direct yt-dlp / FFmpeg music playback (no separate Lavalink service).
+# External Lavalink v4 node used by the Wavelink client.
+LAVALINK_URI = os.getenv("LAVALINK_URI")
+LAVALINK_PASSWORD = os.getenv("LAVALINK_PASSWORD")
+LAVALINK_IDENTIFIER = os.getenv("LAVALINK_IDENTIFIER", "fahim-primary")
 MAX_PLAYLIST_TRACKS = 100
 
 # Dedicated channel for Fahim
