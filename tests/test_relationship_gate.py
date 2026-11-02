@@ -36,10 +36,8 @@ class RelationshipGateTests(unittest.IsolatedAsyncioTestCase):
         self.assertIn("بايثون", answer)
         ai.request_model.assert_awaited_once()
         instruction = ai.request_model.await_args.args[3]
-        self.assertIn("Do not answer ordinary requests", instruction)
-        self.assertIn("A phrase such as", instruction)
-        self.assertIn("without blaming Fahim or making excuses", instruction)
-        self.assertNotIn("Always answer the member's current question", instruction)
+        self.assertNotIn("Do not answer ordinary requests", instruction)
+        self.assertNotIn("DETERMINISTIC RELATIONSHIP STATE: AWAITING APOLOGY", instruction)
 
     async def test_pending_conflict_allows_explicit_apology_attempt(self):
         ai = self.make_ai()
@@ -61,7 +59,8 @@ class RelationshipGateTests(unittest.IsolatedAsyncioTestCase):
         )
 
         instruction = ai.request_model.await_args.args[3]
-        self.assertIn("DETERMINISTIC RELATIONSHIP STATE: AWAITING APOLOGY", instruction)
+        self.assertNotIn("DETERMINISTIC RELATIONSHIP STATE: AWAITING APOLOGY", instruction)
+        ai.request_model.assert_awaited_once()
 
     async def test_pending_conflict_allows_urgent_safety_request(self):
         ai = self.make_ai()
