@@ -25,10 +25,10 @@ YTDL_OPTIONS = {
 }
 
 
-def format_duration(milliseconds, is_stream=False):
+def format_duration(seconds, is_stream=False):
     if is_stream:
         return "بث مباشر"
-    seconds = max(0, int(milliseconds or 0) // 1000)
+    seconds = max(0, int(seconds or 0))
     hours, remainder = divmod(seconds, 3600)
     minutes, seconds = divmod(remainder, 60)
     if hours:
@@ -259,7 +259,7 @@ class MusicCog(commands.Cog):
         if action == "nowplaying":
             if current is None:
                 return {"success": False, "message": "مفيش أغنية شغالة حاليًا."}
-            duration = format_duration((current["duration"] or 0) * 1000, current["is_stream"])
+            duration = format_duration(current["duration"] or 0, current["is_stream"])
             return {"success": True, "message": f"الشغالة حاليًا: {current['title']} — {current['artist']} ({duration})."}
         if action == "queue":
             upcoming = list(state["queue"])[:10]
