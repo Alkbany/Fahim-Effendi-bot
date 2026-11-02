@@ -35,8 +35,7 @@ and must not be exposed publicly.
 
 ## Music commands
 
-- `/play` — search YouTube or submit a YouTube / Spotify URL (Spotify metadata
-  matching is not configured in this first pass).
+- `/play` — search YouTube or submit a YouTube URL.
 - `/pause`, `/resume`, `/skip`, `/stop`, `/leave`.
 - `/nowplaying`, `/queue`, `/volume`, `/shuffle`, `/loop`.
 
