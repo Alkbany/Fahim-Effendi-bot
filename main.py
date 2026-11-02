@@ -229,7 +229,7 @@ class FahimBot(commands.Bot):
         # Initialize AI service
         self.ai_service = AIService(self.search_service)
 
-        # Register the Lavalink/Wavelink music subsystem.
+        # Register the direct yt-dlp / FFmpeg music subsystem.
         await self.load_extension("cogs.music")
 
         # Register Discord slash commands
