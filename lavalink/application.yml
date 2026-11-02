@@ -24,10 +24,6 @@ lavalink:
     useSeekGhosting: true
     youtubePlaylistLoadLimit: 100
     playerUpdateInterval: 5
-  plugins:
-    - dependency: "dev.lavalink.youtube:youtube-plugin:1.18.2"
-      repository: "https://maven.lavalink.dev/releases"
-      snapshot: false
 
 plugins:
   youtube:
