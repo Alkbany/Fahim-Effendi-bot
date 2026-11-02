@@ -550,6 +550,58 @@ async def ask(
 
 
 # =========================
+# Jockie Integration Test
+# =========================
+
+@bot.tree.command(
+    name="jockie-test",
+    description="Send a test play command to Jockie Music",
+)
+async def jockie_test(interaction: discord.Interaction):
+    """Send the exact test command in the channel where this slash command is used."""
+    if interaction.guild_id is None:
+        await interaction.response.send_message(
+            "الاختبار ده متاح داخل السيرفر بس.",
+            ephemeral=True,
+        )
+        return
+
+    channel = interaction.channel
+    if channel is None or not hasattr(channel, "send"):
+        await interaction.response.send_message(
+            "مش قادر أبعت رسالة في القناة دي.",
+            ephemeral=True,
+        )
+        return
+
+    await interaction.response.defer(ephemeral=True)
+
+    try:
+        await channel.send(
+            "m!play test",
+            allowed_mentions=discord.AllowedMentions.none(),
+        )
+    except discord.Forbidden:
+        await interaction.followup.send(
+            "معنديش صلاحية إرسال رسائل في القناة دي.",
+            ephemeral=True,
+        )
+        return
+    except discord.HTTPException:
+        logger.exception("Failed to send Jockie integration test command.")
+        await interaction.followup.send(
+            "حصل خطأ وأنا ببعت أمر الاختبار.",
+            ephemeral=True,
+        )
+        return
+
+    await interaction.followup.send(
+        "بعت الأمر `m!play test` في القناة دي. راقب هل Jockie هيرد عليه.",
+        ephemeral=True,
+    )
+
+
+# =========================
 # Reset Command
 # =========================
 
