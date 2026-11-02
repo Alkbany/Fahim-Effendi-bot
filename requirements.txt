@@ -3,4 +3,5 @@ google-genai==2.34.0
 pymongo==4.19.0
 ddgs==9.16.1
 python-dotenv==1.2.4
-wavelink==3.5.2
+yt-dlp[default]
+imageio-ffmpeg
