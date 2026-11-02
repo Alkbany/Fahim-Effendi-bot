@@ -109,9 +109,8 @@ class MusicCog(commands.Cog):
             try:
                 search_query = query.strip()
                 if "open.spotify.com/" in search_query.lower():
-                    results = await wavelink.Playable.search(search_query)
-                else:
-                    results = await wavelink.Playable.search(search_query, source="ytsearch")
+                    return {"success": False, "message": "روابط Spotify مش مفعّلة في النسخة دي. ابعت اسم الأغنية أو رابط YouTube."}
+                results = await wavelink.Playable.search(search_query, source="ytsearch")
                 if not results:
                     return {"success": False, "message": "ملقتش نتيجة قابلة للتشغيل للطلب ده."}
                 if isinstance(results, wavelink.Playlist):
@@ -204,7 +203,7 @@ class MusicCog(commands.Cog):
             logger.exception("AI music control action failed | action=%s", action)
             return {"success": False, "message": "حصل خطأ أثناء تنفيذ أمر الموسيقى."}
 
-    @app_commands.command(name="play", description="Play a song or add a link to the music queue")
+    @app_commands.command(name="play", description="Search YouTube or play a YouTube link")
     @app_commands.describe(query="Song name or a YouTube / Spotify link")
     async def play(self, interaction: discord.Interaction, query: str):
         await interaction.response.defer(thinking=True)
@@ -220,12 +219,14 @@ class MusicCog(commands.Cog):
 
         try:
             if "open.spotify.com/" in query.lower():
-                results = await wavelink.Playable.search(query.strip())
-            else:
-                results = await wavelink.Playable.search(
-                    query.strip(),
-                    source="ytsearch",
+                await interaction.followup.send(
+                    "روابط Spotify مش مفعّلة حاليًا. ابعت اسم الأغنية أو رابط YouTube."
                 )
+                return
+            results = await wavelink.Playable.search(
+                query.strip(),
+                source="ytsearch",
+            )
         except wavelink.LavalinkLoadException:
             logger.exception("Music search failed.")
             await interaction.followup.send(
