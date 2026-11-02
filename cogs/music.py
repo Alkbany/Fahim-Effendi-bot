@@ -161,9 +161,10 @@ class MusicCog(commands.Cog):
             if state is None:
                 return
             finished = state.get("current")
-            if finished and state["loop"] == "song":
+            skipped = state.pop("skip_current", False)
+            if finished and not skipped and state["loop"] == "song":
                 state["queue"].appendleft(finished)
-            elif finished and state["loop"] == "queue":
+            elif finished and not skipped and state["loop"] == "queue":
                 state["queue"].append(finished)
             state["current"] = None
             await self._start_track(guild_id)
@@ -231,6 +232,7 @@ class MusicCog(commands.Cog):
         if action == "skip":
             if current is None:
                 return {"success": False, "message": "مفيش أغنية شغالة عشان نتخطاها."}
+            state["skip_current"] = True
             voice.stop()
             return {"success": True, "message": f"تخطّينا {current['title']}."}
         if action == "stop":
@@ -274,14 +276,9 @@ class MusicCog(commands.Cog):
             if not isinstance(level, int) or isinstance(level, bool) or not 0 <= level <= 100:
                 return {"success": False, "message": "مستوى الصوت لازم يكون من صفر لمية."}
             state["volume"] = level / 100
-            if current and (voice.is_playing() or voice.is_paused()):
-                voice.stop()
-                # Restart the current track at its beginning with the new volume.
-                state["queue"].appendleft(current)
-                state["current"] = None
-                if voice.is_paused():
-                    voice.resume()
-                await self._start_track(guild.id)
+            source = getattr(voice, "source", None)
+            if isinstance(source, discord.PCMVolumeTransformer):
+                source.volume = state["volume"]
             return {"success": True, "message": f"مستوى الصوت بقى {level}%."}
         return {"success": False, "message": "أمر الموسيقى غير معروف."}
 
