@@ -566,6 +566,13 @@ async def jockie_test(interaction: discord.Interaction):
         )
         return
 
+    if not interaction.user.guild_permissions.manage_guild:
+        await interaction.response.send_message(
+            "الاختبار ده متاح للمشرفين بس.",
+            ephemeral=True,
+        )
+        return
+
     channel = interaction.channel
     if channel is None or not hasattr(channel, "send"):
         await interaction.response.send_message(
