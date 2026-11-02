@@ -3,26 +3,24 @@
 Fahim uses Wavelink as its Python client and Lavalink as a separate Java process.
 Docker and Docker Compose are not used.
 
-## One-time setup in Codespaces
+## Setup and start in Codespaces
 
-1. Rebuild the existing Codespace after the devcontainer installs Java 17.
-2. Download the latest stable `Lavalink.jar` from the official
-   [Lavalink releases](https://github.com/lavalink-devs/Lavalink/releases).
-3. Put the file at `lavalink/Lavalink.jar`. Do not commit the JAR.
-4. Keep the `lavalink/application.yml` configuration in that same folder.
-5. Set the same strong, private `LAVALINK_PASSWORD` in Codespaces Secrets and
-   in the Lavalink process environment. If you change it, change both sides.
+1. Rebuild the existing Codespace once so Java 17 is installed.
+2. Add a Codespaces Secret named `LAVALINK_PASSWORD` with a private password.
+3. Run the following command in one terminal:
 
 ## Start services
 
-Open one terminal and run:
+Run:
 
 ```bash
-./scripts/start_lavalink.sh
+bash scripts/start_lavalink.sh
 ```
 
-Wait until Lavalink reports that it has started on port 2333. Keep this terminal
-running.
+On first run, the script downloads the latest official Lavalink JAR and the
+pinned YouTube plugin directly from their GitHub releases, verifies published
+SHA-256 digests when available, then starts Lavalink. No Maven repository or
+Docker is involved. Keep this terminal running.
 
 Open a second terminal and start Fahim as usual:
 
