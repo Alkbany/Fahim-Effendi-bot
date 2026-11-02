@@ -145,7 +145,7 @@ async def build_recent_channel_context(message, limit=12):
         content = content[:500]
         lines.append(f"{author}: {content}")
 
-    return "\\n".join(lines)[-4500:]
+    return "\n".join(lines)[-4500:]
 
 async def handle_natural_music_request(bot, message, text):
     """Route explicit Egyptian-Arabic music requests to the native music cog."""
