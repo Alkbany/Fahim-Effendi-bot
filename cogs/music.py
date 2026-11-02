@@ -71,7 +71,7 @@ class MusicCog(commands.Cog):
         if player is None or payload.reason != "finished":
             return
         async with self._lock(player.guild.id):
-            if player.current is not None or player.queue.is_empty:
+            if player.current is not None or (player.queue.is_empty and player.queue.loaded is None):
                 return
             try:
                 next_track = player.queue.get()
@@ -155,7 +155,7 @@ class MusicCog(commands.Cog):
             return {"success": False, "message": "ملقتش نتيجة قابلة للتشغيل للطلب ده."}
 
         async with self._lock(guild.id):
-            started = player.current is None and not player.paused
+            started = player.current is None
             first_title = tracks[0].title
             if started:
                 first = tracks.pop(0)
@@ -202,7 +202,13 @@ class MusicCog(commands.Cog):
         if action == "skip":
             if current is None:
                 return {"success": False, "message": "مفيش أغنية شغالة عشان نتخطاها."}
-            await player.skip(force=True)
+            async with self._lock(guild.id):
+                await player.skip(force=True)
+                if not player.queue.is_empty:
+                    try:
+                        await player.play(player.queue.get())
+                    except Exception:
+                        logger.exception("Failed to start next track after skip.")
             return {"success": True, "message": f"تخطّينا **{current.title}**."}
         if action == "stop":
             player.queue.reset()
