@@ -289,8 +289,7 @@ class MusicCog(commands.Cog):
 
     async def _interaction_action(self, interaction, action, **kwargs):
         if interaction.guild is None:
-            await interaction.response.send_message("الأمر ده متاح داخل السيرفر بس.", ephemeral=True)
-            return None
+            return {"success": False, "message": "الأمر ده متاح داخل السيرفر بس."}
         result = await self.execute_ai_action(
             _MessageProxy(interaction.guild, interaction.user),
             action,
