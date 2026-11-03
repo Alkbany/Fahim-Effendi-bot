@@ -1,5 +1,7 @@
 import logging
+import random
 import re
+from urllib.parse import urlsplit
 
 import discord
 import wavelink
@@ -9,6 +11,25 @@ from discord.ext import commands
 from config import LAVALINK_IDENTIFIER, LAVALINK_PASSWORD, LAVALINK_URI, MAX_PLAYLIST_TRACKS
 
 logger = logging.getLogger("fahim.music")
+
+
+def is_spotify_input(query):
+    """Spotify resolution is not implemented by the configured Lavalink sources."""
+    value = (query or "").strip()
+    if value.lower().startswith("spotify:"):
+        return True
+    if not re.match(r"^https?://", value, re.I):
+        return False
+    try:
+        host = (urlsplit(value).hostname or "").lower()
+    except ValueError:
+        return False
+    return host == "spotify.com" or host.endswith(".spotify.com")
+
+
+def shuffle_queue(queue):
+    """Shuffle a mutable queue in place; kept as a small testable utility."""
+    random.shuffle(queue)
 
 
 def format_duration(milliseconds, is_stream=False):
@@ -143,6 +164,15 @@ class MusicCog(commands.Cog):
         return list(results)[:MAX_PLAYLIST_TRACKS]
 
     async def _enqueue(self, guild, member, query):
+        if is_spotify_input(query):
+            return {
+                "success": False,
+                "message": (
+                    "روابط Spotify مش مدعومة حاليًا. ابعت رابط YouTube "
+                    "أو اسم الأغنية بدلًا منها."
+                ),
+            }
+
         player, error = await self._ensure_player(guild, member)
         if error:
             return {"success": False, "message": error}
@@ -212,11 +242,15 @@ class MusicCog(commands.Cog):
             return {"success": True, "message": f"تخطّينا **{current.title}**."}
         if action == "stop":
             player.queue.reset()
+            player.queue.loaded = None
+            player.queue.mode = wavelink.QueueMode.normal
             if current is not None:
                 await player.stop(force=True)
             return {"success": True, "message": "وقفت التشغيل ومسحت قائمة الانتظار."}
         if action == "leave":
             player.queue.reset()
+            player.queue.loaded = None
+            player.queue.mode = wavelink.QueueMode.normal
             await player.disconnect()
             return {"success": True, "message": "فهيم خرج من القناة الصوتية."}
         if action == "nowplaying":

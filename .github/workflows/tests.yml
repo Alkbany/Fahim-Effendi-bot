@@ -6,9 +6,11 @@ on:
       - main
       - feature/deterministic-relationship-gate
       - chore/repository-cleanup
+      - feature/lavalink-standalone-no-docker
   pull_request:
     branches:
       - main
+  workflow_dispatch:
 
 permissions:
   contents: read
@@ -17,11 +19,11 @@ jobs:
   unit-tests:
     name: Python unit tests (${{ matrix.python-version }})
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    timeout-minutes: 15
     strategy:
       fail-fast: false
       matrix:
-        python-version: ["3.12", "3.14"]
+        python-version: ["3.12", "3.13", "3.14"]
     steps:
       - name: Check out repository
         uses: actions/checkout@v7
@@ -37,8 +39,13 @@ jobs:
           python -m pip install --upgrade pip
           python -m pip install -r requirements.txt
 
+      - name: Validate dependency consistency
+        run: python -m pip check
+
       - name: Run unit tests
         env:
           PYTHONPATH: .
+          DISCORD_TOKEN: test-token
+          GEMINI_API_KEY: test-key
+          MONGO_URI: mongodb://localhost:27017
         run: python -m unittest discover -s tests -v
-

@@ -1,57 +1,91 @@
-# Fahim music subsystem (standalone, no Docker)
+# Music subsystem: Wavelink + Lavalink v4
 
-Fahim uses Wavelink as its Python client and Lavalink as a separate Java process.
-Docker and Docker Compose are not used.
+Fahim's music engine is split into two services:
 
-## Setup and start in Codespaces
+- Bot host: Python, discord.py, and Wavelink. Wavelink is the client library; it does not download or stream audio itself.
+- Audio host: Java and Lavalink v4, with the YouTube Source plugin.
 
-1. Rebuild the existing Codespace once so Java 17 is installed.
-2. Add a Codespaces Secret named `LAVALINK_PASSWORD` with a private password.
-3. Run the following command in one terminal:
+No Docker dependency is required.
 
-## Start services
+## 1. Configure the Lavalink server
 
-Run:
+Use lavalink/application.yml as the server configuration. It binds to 0.0.0.0, uses SERVER_PORT when supplied by the provider (otherwise 2333), requires LAVALINK_SERVER_PASSWORD, and declares YouTube Source plugin version 1.18.2.
+
+On the Lavalink host, configure:
+
+| Variable | Value |
+|---|---|
+| SERVER_ADDRESS | 0.0.0.0 |
+| SERVER_PORT | The exact port assigned by the provider, if required |
+| LAVALINK_SERVER_PASSWORD | A long, private password you generate |
+
+Use the host's documented Java 17+ runtime and startup command. The exact command and port allocation are provider-specific. Make sure the assigned TCP port matches the port Lavalink listens on, and that the provider supports external WebSocket connections. Do not expose the endpoint without a strong password.
+
+## 2. Configure the Python bot host
+
+| Variable | Value |
+|---|---|
+| LAVALINK_URI | http://HOST:PORT or https://HOST:PORT, using the provider's actual public endpoint |
+| LAVALINK_PASSWORD | Exactly the same secret as LAVALINK_SERVER_PASSWORD |
+| LAVALINK_IDENTIFIER | Optional; defaults to fahim-primary |
+
+The variable names differ because Lavalink reads LAVALINK_SERVER_PASSWORD, while the Python bot reads LAVALINK_PASSWORD. Keep both out of Git, screenshots, and public logs.
+
+If either bot-side variable is missing, the bot still starts but music is unavailable. This allows normal chat and memory features to start while the audio node is not provisioned.
+
+## 3. Local Codespaces testing
+
+The development container installs Java 17. Add a Codespaces secret named LAVALINK_PASSWORD, then run:
 
 ```bash
 bash scripts/start_lavalink.sh
 ```
 
-On first run, the script downloads the latest official Lavalink JAR and the
-pinned YouTube plugin directly from their GitHub releases, verifies published
-SHA-256 digests when available, then starts Lavalink. No Maven repository or
-Docker is involved. Keep this terminal running.
+The script downloads the latest official Lavalink JAR into the ignored runtime directory. The YouTube Source plugin is resolved by Lavalink from the dependency declared in application.yml; the script does not download a duplicate plugin JAR.
 
-Open a second terminal and start Fahim as usual:
+Keep that terminal running. In a second terminal, configure:
 
 ```bash
+export LAVALINK_URI=http://127.0.0.1:2333
+export LAVALINK_PASSWORD="$LAVALINK_PASSWORD"
 python main.py
 ```
 
-Fahim connects to `http://127.0.0.1:2333`. The port is bound to loopback only
-and must not be exposed publicly.
+The bot and node must use the same password. Do not expose local port 2333 publicly.
 
-## Music commands
+## 4. Commands
 
-- `/play` — search YouTube or submit a YouTube URL.
-- `/pause`, `/resume`, `/skip`, `/stop`, `/leave`.
-- `/nowplaying`, `/queue`, `/volume`, `/shuffle`, `/loop`.
+- /play — search YouTube or play a supported URL.
+- /pause, /resume, /skip, /stop, /leave.
+- /nowplaying, /queue, /volume, /shuffle, /loop.
+- Fahim also recognises clear natural Egyptian-Arabic play and control requests.
 
-Natural-language music actions continue to use Fahim's existing AI callback.
-Only members in Fahim's voice channel can control the player.
+Spotify URL/URI resolution is not implemented. Use a YouTube URL or a song name.
 
-## Important limitation
+## 5. Release acceptance checklist
 
-Changing from yt-dlp in the bot process to Lavalink's YouTube plugin changes the
-audio engine and extraction implementation, but it does not guarantee that
-YouTube will accept requests from a cloud Codespaces IP. We will test node
-startup, search, and actual voice playback before treating the migration as
-working.
+Do not mark music as production-ready until all of these pass on the actual provider:
+
+- [ ] Lavalink starts and loads YouTube Source without dependency errors.
+- [ ] The provider exposes the advertised host and port.
+- [ ] Wavelink logs a node-ready event from the bot host.
+- [ ] YouTube text search returns playable tracks.
+- [ ] A single track plays in a Discord voice channel.
+- [ ] A playlist is capped at the bot's configured maximum.
+- [ ] Pause/resume/skip/stop/leave work.
+- [ ] Queue, shuffle, loop, and volume work.
+- [ ] A temporary node disconnect is logged and the bot recovers after reconnection.
+- [ ] No password is printed in logs or committed to Git.
+
+A successful node connection is not enough: verify actual audio in Discord. YouTube may block requests from a hosting IP or change playback requirements; the plugin cannot guarantee every video or region will work.
 
 ## Troubleshooting
 
-- If Fahim says the music node is offline, confirm the Lavalink terminal is
-  still running and that both processes use the same password.
-- If Lavalink fails to start, check Java with `java -version`.
-- If YouTube search or playback fails, capture the Lavalink error log; do not
-  add browser cookies or account session data.
+| Symptom | Check |
+|---|---|
+| Node stays offline | Public URI, port allocation, shared password, TCP reachability, provider process logs |
+| 401/403 | Lavalink password mismatch or provider proxy configuration |
+| Connection refused / timeout | Wrong host/port, private-only allocation, firewall, process not listening |
+| YouTube search has no results | Plugin loaded, allowSearch, ytsearch prefix, plugin logs |
+| Track loads but does not play | Source restrictions, unsupported video, player/voice permissions, Lavalink track exception |
+| Bot starts without music | Both bot-side Lavalink variables are configured and node-ready event occurs |

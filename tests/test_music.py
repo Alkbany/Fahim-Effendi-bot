@@ -2,7 +2,7 @@ import unittest
 from collections import deque
 from unittest.mock import patch
 
-from cogs.music import format_duration, shuffle_queue
+from cogs.music import format_duration, is_spotify_input, shuffle_queue
 
 
 class MusicFormattingTests(unittest.TestCase):
@@ -21,6 +21,12 @@ class MusicFormattingTests(unittest.TestCase):
 
 
 class MusicQueueTests(unittest.TestCase):
+
+    def test_spotify_urls_are_explicitly_recognised_as_unsupported(self):
+        self.assertTrue(is_spotify_input("https://open.spotify.com/track/example"))
+        self.assertTrue(is_spotify_input("spotify:track:example"))
+        self.assertFalse(is_spotify_input("https://www.youtube.com/watch?v=example"))
+        self.assertFalse(is_spotify_input("Song name"))
 
     def test_shuffle_queue_preserves_deque_and_shuffles_items(self):
         queue = deque(["first", "second", "third"])

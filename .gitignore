@@ -18,6 +18,8 @@ dist/
 *.egg-info/
 fahim_final_model_results.json
 
-# Lavalink runtime binaries and plugins (downloaded by scripts/start_lavalink.sh)
+# Lavalink runtime binaries, downloaded plugins, and logs
 lavalink/Lavalink.jar
-lavalink/plugins/*.jar
+lavalink/plugins/
+lavalink/logs/
+*.part

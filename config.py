@@ -13,10 +13,8 @@ MONGO_URI = os.getenv("MONGO_URI")
 
 
 # Gemini Configuration
-GEMINI_MODEL = os.getenv(
-    "GEMINI_MODEL",
-    "gemini-3.5-flash-lite"
-)
+GEMINI_MODEL = os.getenv("GEMINI_MODEL", "gemini-3.5-flash-lite")
+GEMINI_FALLBACK_MODEL = os.getenv("GEMINI_FALLBACK_MODEL", "gemini-3.6-flash")
 
 
 # MongoDB Configuration
@@ -64,6 +62,7 @@ LAVALINK_IDENTIFIER = os.getenv("LAVALINK_IDENTIFIER", "fahim-primary")
 MAX_PLAYLIST_TRACKS = 100
 
 # Dedicated channel for Fahim
-FAHIM_CHANNEL_ID = int(
-    os.getenv("FAHIM_CHANNEL_ID", "1320069245232742588")
-)
+try:
+    FAHIM_CHANNEL_ID = int(os.getenv("FAHIM_CHANNEL_ID", "1320069245232742588"))
+except ValueError as error:
+    raise RuntimeError("FAHIM_CHANNEL_ID must be a valid Discord channel ID.") from error
