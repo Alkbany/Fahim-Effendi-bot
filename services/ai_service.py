@@ -865,8 +865,22 @@ class AIService:
             item for item in memories.get("personal", [])
             if item.get("key") != "relationship_state"
         ]
+        relationship = next(
+            (
+                item for item in memories.get("personal", [])
+                if item.get("key") == "relationship_state"
+            ),
+            None,
+        )
         shared = memories.get("shared", [])
         sections = []
+
+        if relationship and isinstance(relationship.get("summary"), str):
+            summary = relationship["summary"].strip()
+            if summary:
+                sections.append(
+                    "[PRIVATE RELATIONSHIP CONTEXT]\n" + summary[:700]
+                )
 
         if personal:
             lines = ["[RELEVANT PRIVATE USER MEMORIES]"]
