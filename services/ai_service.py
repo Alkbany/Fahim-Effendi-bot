@@ -344,7 +344,7 @@ class AIService:
             "message": (
                 "Search completed."
                 if results
-                else "Search completed, but no matching results were returned."
+                else "No verifiable search results were returned. This does not prove that the information does not exist."
             ),
         }
 
@@ -1132,7 +1132,7 @@ You have a music_action tool connected to the real Discord player.
                 failure_kind = (
                     "تعذر التحقق من نتائج البحث المباشر؛ قد يكون السبب حجبًا من مزود البحث أو عدم وجود نتائج."
                     if not search_result.get("available", True)
-                    else "لم تُرجع عملية البحث نتائج مطابقة."
+                    else "لم تُرجع عملية البحث نتائج قابلة للتحقق."
                 )
                 system_instruction += (
                     "\n\n[MANDATORY PRICE SEARCH FAILED]\n"

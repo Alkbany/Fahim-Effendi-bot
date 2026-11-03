@@ -27,12 +27,14 @@ if [[ ! -s "$JAR" ]]; then
   python - "$JAR" <<'PY'
 import hashlib
 import json
+import os
 import pathlib
 import sys
 import urllib.request
 
 destination = pathlib.Path(sys.argv[1])
-api_url = "https://api.github.com/repos/lavalink-devs/Lavalink/releases/latest"
+version = os.environ.get("LAVALINK_VERSION", "4.2.2").lstrip("v")
+api_url = f"https://api.github.com/repos/lavalink-devs/Lavalink/releases/tags/{version}"
 request = urllib.request.Request(
     api_url,
     headers={
@@ -48,7 +50,7 @@ asset = next(
     None,
 )
 if asset is None:
-    raise SystemExit("The latest Lavalink release does not contain Lavalink.jar.")
+    raise SystemExit("The selected Lavalink release does not contain Lavalink.jar. Check LAVALINK_VERSION.")
 
 temporary = destination.with_suffix(".jar.part")
 digest = hashlib.sha256()
@@ -68,7 +70,7 @@ if expected and expected.startswith("sha256:"):
         raise SystemExit("Lavalink JAR SHA-256 verification failed.")
 
 temporary.replace(destination)
-print(f"Downloaded Lavalink {release.get('tag_name', 'latest')} to {destination}")
+print(f"Downloaded Lavalink {release.get('tag_name', 'unknown')} to {destination}")
 PY
 fi
 

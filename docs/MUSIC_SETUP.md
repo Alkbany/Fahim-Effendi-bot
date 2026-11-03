@@ -9,7 +9,7 @@ No Docker dependency is required.
 
 ## 1. Configure the Lavalink server
 
-Use lavalink/application.yml as the server configuration. It binds to 0.0.0.0, uses SERVER_PORT when supplied by the provider (otherwise 2333), requires LAVALINK_SERVER_PASSWORD, and declares YouTube Source plugin version 1.18.2.
+Use lavalink/application.yml as the server configuration. It uses SERVER_ADDRESS (default 0.0.0.0) and SERVER_PORT (default 2333), requires LAVALINK_SERVER_PASSWORD, and declares YouTube Source plugin version 1.18.2.
 
 On the Lavalink host, configure:
 
@@ -35,13 +35,13 @@ If either bot-side variable is missing, the bot still starts but music is unavai
 
 ## 3. Local Codespaces testing
 
-The development container installs Java 17. Add a Codespaces secret named LAVALINK_PASSWORD, then run:
+The development container installs Java 17. The launcher defaults to Lavalink 4.2.2, which includes DAVE support for modern Discord voice connections. Add a Codespaces secret named LAVALINK_PASSWORD, then run:
 
 ```bash
 bash scripts/start_lavalink.sh
 ```
 
-The script downloads the latest official Lavalink JAR into the ignored runtime directory. The YouTube Source plugin is resolved by Lavalink from the dependency declared in application.yml; the script does not download a duplicate plugin JAR.
+The script downloads the pinned official Lavalink 4.2.2 JAR by default into the ignored runtime directory. Set LAVALINK_VERSION to intentionally select another compatible release. The YouTube Source plugin is resolved by Lavalink from the dependency declared in application.yml; the script does not download a duplicate plugin JAR.
 
 Keep that terminal running. In a second terminal, configure:
 

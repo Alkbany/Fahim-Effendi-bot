@@ -6,7 +6,7 @@ Fahim is an Egyptian-Arabic Discord companion powered by Gemini, with MongoDB-ba
 - Replies in the configured channel, when mentioned, or when a member replies to Fahim.
 - /ask and private /reset commands.
 - Per-member conversation history and private memories, plus server-scoped shared memories.
-- Live web search through DDGS' metasearch backends.
+- Live web search through DDGS with ordered multi-engine fallback when the primary result is empty or blocked.
 - Music playback through Wavelink connected to a separately hosted Lavalink v4 server.
 - Fallback Gemini model for eligible transient API failures and empty model responses.
 - Automated unit tests and CI on Python 3.12, 3.13, and 3.14.
@@ -32,7 +32,7 @@ python -m pip install --upgrade pip
 python -m pip install -r requirements.txt
 ```
 
-Copy .env.example to .env and configure DISCORD_TOKEN, GEMINI_API_KEY, and MONGO_URI. Optional settings include GEMINI_MODEL, GEMINI_FALLBACK_MODEL, FAHIM_CHANNEL_ID, DDGS_BACKEND, and DDGS_REGION.
+Copy .env.example to .env and configure DISCORD_TOKEN, GEMINI_API_KEY, and MONGO_URI. Optional settings include GEMINI_MODEL, GEMINI_FALLBACK_MODEL, FAHIM_CHANNEL_ID, DDGS_BACKEND, DDGS_FALLBACK_BACKENDS, and DDGS_REGION.
 
 For music, set BOTH LAVALINK_URI and LAVALINK_PASSWORD on the bot host. Use the node's public address and assigned port, including http:// or https://. The password must exactly match LAVALINK_SERVER_PASSWORD on the Lavalink host. Never commit secrets.
 
@@ -42,7 +42,7 @@ python main.py
 ```
 
 ## Music deployment
-Use lavalink/application.yml as the Lavalink v4 configuration. It declares YouTube Source plugin version 1.18.2 and disables Lavalink's deprecated built-in YouTube source.
+Use lavalink/application.yml as the Lavalink v4 configuration. It declares YouTube Source plugin version 1.18.2, disables Lavalink's deprecated built-in YouTube source, and targets Lavalink 4.2.2 by default for DAVE voice compatibility.
 
 Set on the Lavalink host:
 - SERVER_ADDRESS=0.0.0.0

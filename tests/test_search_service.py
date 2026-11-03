@@ -42,18 +42,31 @@ class SearchServiceTests(unittest.IsolatedAsyncioTestCase):
             with self.assertRaises(SearchUnavailableError):
                 await service.search("test")
 
-    async def test_ddgs_receives_configured_network_timeout_and_backend(self):
+    async def test_ddgs_uses_ordered_fallback_when_primary_returns_no_results(self):
         with patch("services.search_service.DDGS") as ddgs:
-            ddgs.return_value.text.return_value = []
-            service = SearchService(timeout=7, backend="bing", region="wt-wt")
-            service._search_sync("Python")
-        ddgs.assert_called_once_with(timeout=7)
-        ddgs.return_value.text.assert_called_once_with(
-            "Python",
-            region="wt-wt",
-            max_results=5,
-            safesearch="moderate",
-            backend="bing",
+            ddgs.return_value.text.side_effect = [
+                [],
+                [{"title": "Result", "href": "https://example.com", "body": "Snippet"}],
+            ]
+            service = SearchService(
+                timeout=7,
+                backend="bing",
+                fallback_backends="google,brave",
+                region="wt-wt",
+            )
+            results = service._search_sync("Python")
+
+        self.assertEqual(len(results), 1)
+        self.assertEqual(ddgs.call_count, 2)
+        self.assertEqual(ddgs.call_args_list[0].kwargs, {"timeout": 7})
+        self.assertEqual(ddgs.call_args_list[1].kwargs, {"timeout": 7})
+        self.assertEqual(
+            ddgs.return_value.text.call_args_list[0].kwargs["backend"],
+            "bing",
+        )
+        self.assertEqual(
+            ddgs.return_value.text.call_args_list[1].kwargs["backend"],
+            "google,brave",
         )
 
     async def test_query_is_trimmed_and_length_limited(self):

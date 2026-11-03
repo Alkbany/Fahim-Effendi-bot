@@ -9,10 +9,10 @@ Collection: `user_conversations`
 
 - One document per `guild_id` + `user_id`.
 - Stores alternating user and assistant messages with timestamps.
-- The history array is capped at `MAX_HISTORY_MESSAGES` (currently 30 messages,
+- The history array is capped at `MAX_HISTORY_MESSAGES` (currently 50 messages,
   or approximately 15 exchanges). MongoDB's `$slice` removes the oldest
   entries whenever a new turn is saved.
-- Gemini receives only the latest `AI_HISTORY_LIMIT` messages (currently 6),
+- Gemini receives only the latest `AI_HISTORY_LIMIT` messages (currently 12),
   subject to the per-message and total-character limits in `config.py`.
 - This is short-term conversational context, not a lifetime archive.
 - Text quoted from a message being replied to is temporary prompt context.
