@@ -8,10 +8,10 @@ from cogs.music import format_duration, is_spotify_input, shuffle_queue
 class MusicFormattingTests(unittest.TestCase):
 
     def test_formats_short_track(self):
-        self.assertEqual(format_duration(185), "3:05")
+        self.assertEqual(format_duration(185_000), "3:05")
 
     def test_formats_track_with_hours(self):
-        self.assertEqual(format_duration(3661), "1:01:01")
+        self.assertEqual(format_duration(3_661_000), "1:01:01")
 
     def test_formats_zero_length(self):
         self.assertEqual(format_duration(0), "0:00")

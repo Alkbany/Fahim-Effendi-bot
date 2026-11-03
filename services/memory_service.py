@@ -8,6 +8,7 @@ from config import (
     MAX_PERSONAL_MEMORIES,
     MAX_GUILD_MEMORIES,
     MAX_MEMORY_TEXT_CHARS,
+    MEMORY_QUERY_SCAN_LIMIT,
 )
 
 
@@ -293,8 +294,8 @@ class MemoryService:
         limit = max(1, min(int(limit), MAX_GUILD_MEMORIES))
         cursor = self.guild_memories.find(
             {"guild_id": str(guild_id)}, {"_id": 0}
-        ).limit(40)
-        documents = await cursor.to_list(length=40)
+        ).limit(MEMORY_QUERY_SCAN_LIMIT)
+        documents = await cursor.to_list(length=MEMORY_QUERY_SCAN_LIMIT)
 
         sanitized_documents = []
         for document in documents:
@@ -586,8 +587,8 @@ class MemoryService:
         cursor = self.user_memories.find(
             {"guild_id": str(guild_id), "user_id": str(user_id)},
             {"_id": 0},
-        ).limit(40)
-        documents = await cursor.to_list(length=40)
+        ).limit(MEMORY_QUERY_SCAN_LIMIT)
+        documents = await cursor.to_list(length=MEMORY_QUERY_SCAN_LIMIT)
 
         sanitized_documents = []
         for document in documents:

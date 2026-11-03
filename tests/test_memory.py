@@ -4,7 +4,11 @@ from unittest.mock import AsyncMock, Mock
 
 from pymongo.errors import DuplicateKeyError
 
-from config import MAX_HISTORY_MESSAGES, MAX_MEMORY_CONTEXT_CHARS
+from config import (
+    MAX_HISTORY_MESSAGES,
+    MAX_MEMORY_CONTEXT_CHARS,
+    MEMORY_QUERY_SCAN_LIMIT,
+)
 from services.ai_service import AIService
 from services.memory_service import MemoryService
 
@@ -475,7 +479,7 @@ class MemoryServiceTests(unittest.IsolatedAsyncioTestCase):
         query = self.database.user_memories.find.call_args.args[0]
         self.assertEqual(query["guild_id"], "100")
         self.assertEqual(query["user_id"], "200")
-        self.assertEqual(cursor.limit_value, 30)
+        self.assertEqual(cursor.limit_value, MEMORY_QUERY_SCAN_LIMIT)
         self.assertEqual(len(result), 1)
 
     async def test_guild_memory_query_is_scoped_to_guild(self):
@@ -494,7 +498,7 @@ class MemoryServiceTests(unittest.IsolatedAsyncioTestCase):
         query = self.database.guild_memories.find.call_args.args[0]
         self.assertEqual(query["guild_id"], "100")
         self.assertNotIn("user_id", query)
-        self.assertEqual(cursor.limit_value, 30)
+        self.assertEqual(cursor.limit_value, MEMORY_QUERY_SCAN_LIMIT)
         self.assertEqual(len(result), 1)
 
 

@@ -859,7 +859,12 @@ class AIService:
         if not memories:
             return ""
 
-        personal = memories.get("personal", [])
+        # Relationship state is handled by the dedicated policy block below,
+        # not mixed into ordinary factual memories.
+        personal = [
+            item for item in memories.get("personal", [])
+            if item.get("key") != "relationship_state"
+        ]
         shared = memories.get("shared", [])
         sections = []
 
@@ -945,6 +950,29 @@ class AIService:
         )
         if self.search_service:
             system_instruction += self.get_research_instructions()
+
+        if is_emergency:
+            system_instruction += """
+
+[URGENT SAFETY REQUEST]
+This is an urgent safety request. Put immediate safety and practical next steps
+ahead of persona, banter, entertainment, or relationship history. Be calm,
+clear, concise, and direct. Do not delay with unnecessary questions. Do not
+record relationship events or save personal/shared memories from this request.
+"""
+        elif relationship_status == "reserved":
+            completed_improvements = max(
+                0, min(relationship_state["improvement_count"], 2)
+            )
+            system_instruction += f"""
+
+[DETERMINISTIC RELATIONSHIP STATE: RESERVED]
+The member has made an accepted apology and is in a cautious recovery period.
+Recorded improvements: {completed_improvements} of 3.
+Remain civil and measured, but continue answering ordinary questions fully.
+Never shame the member, withhold help, or treat one neutral message as proof
+of improvement. Count progress only through the dedicated relationship rules.
+"""
 
         if conversation_context:
             system_instruction += (
