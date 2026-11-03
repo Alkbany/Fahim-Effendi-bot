@@ -59,7 +59,7 @@ class SearchService:
                 type(error).__name__,
             )
 
-        if primary_results:
+        if self._has_usable_results(primary_results):
             return primary_results
 
         if not self.fallback_backends or self.fallback_backends == self.backend:
@@ -87,7 +87,7 @@ class SearchService:
                 "Primary and fallback web-search backends failed."
             ) from (primary_error or error)
 
-        if fallback_results:
+        if self._has_usable_results(fallback_results):
             logger.info(
                 "DDGS fallback returned results | backends=%s | results=%d",
                 self.fallback_backends,
@@ -126,6 +126,10 @@ class SearchService:
             "url": url[:1000],
             "snippet": snippet,
         }
+
+    @classmethod
+    def _has_usable_results(cls, results):
+        return any(cls._normalise_result(item) is not None for item in results or [])
 
     async def search(self, query):
         if not isinstance(query, str) or not query.strip():

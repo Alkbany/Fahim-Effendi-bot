@@ -18,6 +18,37 @@ class SearchServiceTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(results[0]["title"], "Python Docs")
         self.assertEqual(results[0]["url"], "https://docs.python.org/")
 
+    async def test_fallback_runs_when_primary_backend_raises(self):
+        with patch("services.search_service.DDGS") as ddgs:
+            ddgs.return_value.text.side_effect = [
+                RuntimeError("HTTP 403"),
+                [{"title": "Result", "href": "https://example.com", "body": "Snippet"}],
+            ]
+            service = SearchService(
+                backend="auto",
+                fallback_backends="google,bing",
+            )
+            results = service._search_sync("Python")
+
+        self.assertEqual(len(results), 1)
+        self.assertEqual(ddgs.call_count, 2)
+        self.assertEqual(
+            ddgs.return_value.text.call_args_list[1].kwargs["backend"],
+            "google,bing",
+        )
+
+    async def test_fallback_runs_when_primary_has_only_invalid_urls(self):
+        with patch("services.search_service.DDGS") as ddgs:
+            ddgs.return_value.text.side_effect = [
+                [{"title": "Invalid", "href": "javascript:alert(1)"}],
+                [{"title": "Valid", "href": "https://example.com"}],
+            ]
+            service = SearchService(backend="auto", fallback_backends="google,bing")
+            results = service._search_sync("Python")
+
+        self.assertEqual(results[0]["title"], "Valid")
+        self.assertEqual(ddgs.call_count, 2)
+
     async def test_empty_query_returns_empty_list(self):
         self.assertEqual(await SearchService().search("   "), [])
 
